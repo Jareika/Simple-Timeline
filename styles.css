@@ -1,0 +1,215 @@
+.tl-wrapper.tl-cross-mode {
+  display: grid;
+  gap: 20px;
+}
+
+.tl-row {
+  width: 100%;
+  margin: 0;
+}
+
+.tl-grid {
+  display: grid;
+  align-items: center;
+  column-gap: 0;
+  row-gap: 0;
+}
+
+/* Image */
+.tl-media {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--background-modifier-border);
+  z-index: 2; /* in doubt, sit above the box when they overlap slightly */
+}
+
+/* Card / callout‑like box */
+.tl-box.callout {
+  position: relative;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  margin: 0; /* neutralize default callout margin from the theme */
+  background: var(--tl-bg, var(--background-primary));
+  border: 1px solid var(--tl-accent, var(--background-modifier-border));
+  box-shadow: 0 1px 0 rgba(0,0,0,.04), 1px 0 0 rgba(0,0,0,.04);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition:
+    background-color .15s ease,
+    border-color .15s ease,
+    box-shadow .15s ease;
+}
+
+.tl-box.callout.has-media {
+  border-left: none;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.tl-box.callout.no-media {
+  border-radius: 10px;
+}
+
+.tl-box .tl-title,
+.tl-box .tl-date {
+  margin: 0 0 6px;
+}
+
+/* When a custom title/date color is set:
+   - Turn off theme underline (border/shadow/background)
+   - We draw our own gradient underline instead */
+.tl-box .tl-title.tl-title-colored,
+.tl-box .tl-date.tl-date-colored {
+  position: relative;
+  border-bottom: none !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+
+/* H1 line: slightly thicker, full width, close to the text */
+.tl-box .tl-title.tl-title-colored::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  bottom: -0.12em;
+  height: 0.12em;
+  width: 100%;
+  background-image: linear-gradient(
+    to right,
+    currentColor 0%,
+    currentColor 20%,
+    transparent 100%
+  );
+  opacity: 0.95;
+}
+
+/* H4 / date line: shorter and visually distinct*/
+.tl-box .tl-date.tl-date-colored::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  bottom: -0.24em;
+  height: 0.20em;
+  width: 45%;
+  background-image: linear-gradient(
+    to right,
+    currentColor 0%,
+    currentColor 1%,
+    transparent 100%
+  );
+  opacity: 0.95;
+}
+
+/* Summary: native multi‑line ellipsis; line count is set from JS */
+.tl-box .tl-summary {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  line-height: var(--tl-summary-lh, 1.4);
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  word-break: break-word;
+}
+
+/* Extra safety against overflow (no visual gradient, just clipping) */
+.tl-box .tl-summary.tl-clamp {
+  max-height: calc(var(--tl-summary-lines, 7) * var(--tl-summary-lh, 1.4) * 1em);
+  overflow: hidden;
+}
+
+/* Hover: background changes, border keeps the accent color */
+.tl-media:hover + .tl-box.callout.has-media,
+.tl-box.callout:hover {
+  background: var(
+    --tl-hover,
+    var(--interactive-accent, var(--tl-bg, var(--background-primary)))
+  );
+  border-color: var(--tl-accent, var(--background-modifier-border));
+  box-shadow: 0 1px 0 rgba(0,0,0,.06), 1px 0 0 rgba(0,0,0,.06);
+}
+
+/* Click / popover area only over image or box */
+.tl-hover-anchor.internal-link {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  text-decoration: none !important;
+  color: transparent !important;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* =========================================
+   Responsive behaviour (tablet / mobile)
+   ========================================= */
+
+@media (max-width: 900px) {
+  .tl-wrapper.tl-cross-mode {
+    gap: 16px;
+  }
+
+  .tl-row {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    display: flex;
+    justify-content: center;
+  }
+
+  .tl-grid {
+    grid-template-columns: 1fr !important; /* image above card */
+    justify-items: stretch;
+    width: 100%;
+    max-width: 560px;
+    row-gap: 0;
+  }
+
+  /* Image on top: visually part of the same “card”.
+     Slight negative margin to eat any remaining gap from theme styles. */
+  .tl-media {
+    width: 100% !important;
+    max-width: 560px;
+    height: auto !important;
+    border-radius: 10px 10px 0 0;
+    border: none;
+    margin-bottom: -6px;   /* lets the image slightly overlap the box */
+    background: transparent;
+  }
+
+  .tl-media img {
+    width: 100%;
+    height: auto !important;
+    object-fit: cover;
+    display: block;
+    border-radius: 10px 10px 0 0;
+  }
+
+  /* Box below the image: together they form a single card */
+  .tl-box.callout {
+    width: 100%;
+    max-width: 560px;
+  }
+
+  .tl-box.callout.has-media {
+    height: auto !important;
+    border-radius: 0 0 10px 10px;
+    border: 1px solid var(--tl-accent, var(--background-modifier-border));
+    border-top: none; /* no double border directly under the image */
+    margin-top: 0;
+  }
+
+  /* Without image: card stands on its own, full width, auto height */
+  .tl-box.callout.no-media {
+    width: 100%;
+    max-width: 560px;
+    height: auto !important;
+    border-radius: 10px;
+  }
+}

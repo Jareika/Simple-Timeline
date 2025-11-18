@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-simple-timeline",
+  "version": "0.2.9",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
+  }
+}
