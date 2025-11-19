@@ -45,7 +45,7 @@ Minimum Obsidian version: `1.6.7`.
 
 Add at least `fc-date` to any note you want to see on a timeline.
 
-```yaml
+
 ---
 fc-date: 1165-04-01       # required
 fc-end: 1165-04-03        # optional (end of range)
@@ -56,3 +56,8 @@ tl-summary: |-            # optional custom summary
   The fence was swallowed by vines...
 tl-image: assets/hollowhome.jpg    # optional image override
 ---
+
+### 2. YAML Codeblock for display
+~~~timeline-cal
+name/names: YourTimeline, YourSecondTimelineIfYouLikeToShowTwo...orMore
+~~~
