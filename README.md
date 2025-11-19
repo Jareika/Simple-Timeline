@@ -62,4 +62,3 @@ tl-image: assets/hollowhome.jpg    # optional image override
 ```timeline-cal
 name/names: YourTimeline, YourSecondTimelineIfYouLikeToShowTwo...orMore
 ```
-```
