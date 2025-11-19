@@ -57,6 +57,7 @@ tl-summary: |-            # optional custom summary
 tl-image: assets/hollowhome.jpg    # optional image override
 ---
 ```
+### 2. YAML Codeblock to display the timeline
 
 ```yaml
 ```timeline-cal
