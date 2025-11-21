@@ -58,14 +58,16 @@
   margin: 0 0 6px;
 }
 
-/* When a custom title/date color is set:
-   - Turn off theme underline (border/shadow/background)
-   - We draw our own gradient underline instead */
+
+/* Grundstil für Timeline-Heading, entkoppelt vom Theme */
 .tl-box .tl-title.tl-title-colored,
 .tl-box .tl-date.tl-date-colored {
   position: relative;
-  border-bottom: none !important;
-  box-shadow: none !important;
+  display: inline-block;                /* isoliert den Unterstrich auf Textbreite */
+  border: 0 !important;                 /* Theme-Borders aus */
+  border-bottom: 0 !important;
+  box-shadow: none !important;          /* Theme-Schatten aus */
+  background: none !important;          /* Theme-Hintergründe aus */
   background-image: none !important;
 }
 

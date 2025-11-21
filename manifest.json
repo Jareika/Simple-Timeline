@@ -1,7 +1,7 @@
 {
   "id": "simple-timeline",
   "name": "Simple Timeline",
-  "version": "0.2.9",
+  "version": "0.3.1",
   "minAppVersion": "1.6.7",
   "description": "Timeline-Renderer für Calendarium-Frontmatter (fc-date/fc-end). 200×315 Bild, Callout-Stil, native Popover, mobilfreundlich.",
   "author": "Jareika",

@@ -38,13 +38,23 @@ var DEFAULT_SETTINGS = {
   styleOverrides: {},
   migratedLegacy: false
 };
+function setCssProps(el, props) {
+  const style = el.style;
+  for (const [name, value] of Object.entries(props)) {
+    if (name.startsWith("--")) {
+      style.setProperty(name, value);
+    } else {
+      style[name] = value;
+    }
+  }
+}
 var SimpleTimeline = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
     await this.migrateLegacyToTimelineConfigs();
     this.registerMarkdownCodeBlockProcessor(
       "timeline-cal",
-      async (src, el, ctx) => this.renderTimeline(src, el, ctx)
+      (src, el, ctx) => this.renderTimeline(src, el, ctx)
     );
     this.addCommand({
       id: "set-cal-date",
@@ -52,7 +62,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
-        if (!checking) this.promptSetDate(file, false);
+        if (!checking) void this.promptSetDate(file, false);
         return true;
       }
     });
@@ -62,7 +72,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
-        if (!checking) this.promptSetDate(file, true);
+        if (!checking) void this.promptSetDate(file, true);
         return true;
       }
     });
@@ -72,7 +82,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
-        if (!checking) this.promptEditTimelines(file);
+        if (!checking) void this.promptEditTimelines(file);
         return true;
       }
     });
@@ -82,7 +92,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
-        if (!checking) this.promptSetSummary(file);
+        if (!checking) void this.promptSetSummary(file);
         return true;
       }
     });
@@ -92,7 +102,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
-        if (!checking) this.adoptFirstImage(file);
+        if (!checking) void this.adoptFirstImage(file);
         return true;
       }
     });
@@ -118,8 +128,11 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     await this.app.fileManager.processFrontMatter(file, (fm) => {
       try {
         fm["fc-date"] = this.tryParseYamlOrString(start);
-        if (range && end) fm["fc-end"] = this.tryParseYamlOrString(end);
-        else if (!range) delete fm["fc-end"];
+        if (range && end) {
+          fm["fc-end"] = this.tryParseYamlOrString(end);
+        } else if (!range) {
+          delete fm["fc-end"];
+        }
       } catch {
         new import_obsidian.Notice("Invalid date.");
       }
@@ -134,7 +147,9 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     });
     if (val == null) return;
     const arr = String(val).split(",").map((s) => s.trim()).filter(Boolean);
-    await this.app.fileManager.processFrontMatter(file, (fm) => fm["timelines"] = arr);
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm["timelines"] = arr;
+    });
   }
   async promptSetSummary(file) {
     const cur = this.app.metadataCache.getFileCache(file)?.frontmatter?.["tl-summary"] ?? "";
@@ -144,21 +159,26 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       placeholder: "Multi-line allowed (YAML | or |- in frontmatter)"
     });
     if (val == null) return;
-    await this.app.fileManager.processFrontMatter(file, (fm) => fm["tl-summary"] = String(val));
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm["tl-summary"] = String(val);
+    });
   }
   async adoptFirstImage(file) {
-    const link = await this.findImageForFile(file);
+    const link = this.findImageForFile(file);
     if (!link) {
       new import_obsidian.Notice("No image found.");
       return;
     }
-    await this.app.fileManager.processFrontMatter(file, (fm) => fm["tl-image"] = link);
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm["tl-image"] = link;
+    });
     new import_obsidian.Notice("tl-image set from first image.");
   }
   tryParseYamlOrString(input) {
     const trimmed = String(input).trim();
-    if (trimmed.startsWith("{") && trimmed.endsWith("}") || trimmed.includes(":"))
+    if (trimmed.startsWith("{") && trimmed.endsWith("}") || trimmed.includes(":")) {
       return (0, import_obsidian.parseYaml)(trimmed);
+    }
     return trimmed;
   }
   // ---------- Renderer ----------
@@ -166,9 +186,11 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     let opts = {};
     try {
       opts = (0, import_obsidian.parseYaml)(src) ?? {};
-    } catch {
+    } catch (e) {
+      console.debug("simple-timeline: invalid block options", e);
     }
-    const namesRaw = (Array.isArray(opts.names) ? opts.names : opts.name ? [opts.name] : String(opts.names ?? "").split(",")).map((s) => String(s).trim()).filter(Boolean);
+    const namesValue = opts.names ?? opts.name;
+    const namesRaw = typeof namesValue === "string" ? namesValue.split(",").map((s) => s.trim()).filter(Boolean) : Array.isArray(namesValue) ? namesValue.map((s) => String(s).trim()).filter(Boolean) : [];
     const filterNames = namesRaw.length ? namesRaw : [];
     const files = this.app.vault.getMarkdownFiles();
     const cards = [];
@@ -176,9 +198,12 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       const cache = this.app.metadataCache.getFileCache(f);
       const fm = cache?.frontmatter;
       if (!fm) continue;
-      if (!("fc-date" in fm)) continue;
-      const tlList = Array.isArray(fm["timelines"]) ? fm["timelines"].map((s) => String(s)) : [];
-      if (filterNames.length && !tlList.some((t) => filterNames.includes(t))) continue;
+      if (!Object.prototype.hasOwnProperty.call(fm, "fc-date")) continue;
+      const timelinesVal = fm["timelines"];
+      const tlList = Array.isArray(timelinesVal) ? timelinesVal.map((s) => String(s)) : [];
+      if (filterNames.length && !tlList.some((t) => filterNames.includes(t))) {
+        continue;
+      }
       const start = this.parseFcDate(fm["fc-date"]);
       if (!start) continue;
       const end = fm["fc-end"] ? this.parseFcDate(fm["fc-end"]) : void 0;
@@ -191,7 +216,11 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       if (!summary) {
         summary = await this.extractFirstParagraph(f);
       }
-      const imgSrc = await this.resolveImageSrc(f, fm, ctx.sourcePath);
+      const imgSrc = this.resolveImageSrc(
+        f,
+        fm,
+        ctx.sourcePath ?? f.path
+      );
       cards.push({
         file: f,
         title,
@@ -202,7 +231,9 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         primaryTl
       });
     }
-    cards.sort((a, b) => a.start.y * 1e4 + a.start.m * 100 + a.start.d - (b.start.y * 1e4 + b.start.m * 100 + b.start.d));
+    cards.sort(
+      (a, b) => a.start.y * 1e4 + a.start.m * 100 + a.start.d - (b.start.y * 1e4 + b.start.m * 100 + b.start.d)
+    );
     const wrapper = el.createDiv({ cls: "tl-wrapper tl-cross-mode" });
     for (const c of cards) {
       const row = wrapper.createDiv({ cls: "tl-row" });
@@ -210,47 +241,71 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       const W = cfg.cardWidth;
       const H = cfg.cardHeight;
       const BH = cfg.boxHeight;
-      row.style.paddingLeft = `${cfg.sideGapLeft}px`;
-      row.style.paddingRight = `${cfg.sideGapRight}px`;
-      row.style.setProperty("--tl-bg", cfg.colors.bg || "var(--background-primary)");
-      row.style.setProperty("--tl-accent", cfg.colors.accent || "var(--background-modifier-border)");
-      row.style.setProperty("--tl-hover", cfg.colors.hover || "var(--interactive-accent)");
+      setCssProps(row, {
+        paddingLeft: `${cfg.sideGapLeft}px`,
+        paddingRight: `${cfg.sideGapRight}px`,
+        "--tl-bg": cfg.colors.bg || "var(--background-primary)",
+        "--tl-accent": cfg.colors.accent || "var(--background-modifier-border)",
+        "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
+      });
       const grid = row.createDiv({ cls: "tl-grid" });
-      grid.style.display = "grid";
-      grid.style.alignItems = "center";
-      grid.style.columnGap = "0";
+      setCssProps(grid, {
+        display: "grid",
+        alignItems: "center",
+        columnGap: "0"
+      });
       const hasMedia = !!c.imgSrc;
-      grid.style.gridTemplateColumns = hasMedia ? `${W}px 1fr` : `1fr`;
+      setCssProps(grid, {
+        gridTemplateColumns: hasMedia ? `${W}px 1fr` : "1fr"
+      });
       let media = null;
-      if (hasMedia) {
+      if (hasMedia && c.imgSrc) {
         media = grid.createDiv({ cls: "tl-media" });
-        media.style.width = `${W}px`;
-        media.style.height = `${H}px`;
-        media.style.position = "relative";
-        const img = media.createEl("img", { attr: { src: c.imgSrc, alt: c.title, loading: "lazy" } });
-        img.style.width = "100%";
-        img.style.height = "100%";
-        img.style.objectFit = "cover";
-        img.style.display = "block";
+        setCssProps(media, {
+          width: `${W}px`,
+          height: `${H}px`,
+          position: "relative"
+        });
+        const img = media.createEl("img", {
+          attr: { src: c.imgSrc, alt: c.title, loading: "lazy" }
+        });
+        setCssProps(img, {
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block"
+        });
       }
-      const box = grid.createDiv({ cls: `tl-box callout ${hasMedia ? "has-media" : "no-media"}` });
-      box.style.height = `${BH}px`;
-      box.style.boxSizing = "border-box";
-      box.style.setProperty("--tl-bg", cfg.colors.bg || "var(--background-primary)");
-      box.style.setProperty("--tl-accent", cfg.colors.accent || "var(--background-modifier-border)");
-      box.style.setProperty("--tl-hover", cfg.colors.hover || "var(--interactive-accent)");
-      const titleEl = box.createEl("h1", { cls: "tl-title", text: c.title });
-      const dateEl = box.createEl("h4", { cls: "tl-date", text: this.formatRange(c.start, c.end) });
+      const box = grid.createDiv({
+        cls: `tl-box callout ${hasMedia ? "has-media" : "no-media"}`
+      });
+      setCssProps(box, {
+        height: `${BH}px`,
+        boxSizing: "border-box",
+        "--tl-bg": cfg.colors.bg || "var(--background-primary)",
+        "--tl-accent": cfg.colors.accent || "var(--background-modifier-border)",
+        "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
+      });
+      const titleEl = box.createEl("h1", {
+        cls: "tl-title",
+        text: c.title
+      });
+      const dateEl = box.createEl("h4", {
+        cls: "tl-date",
+        text: this.formatRange(c.start, c.end)
+      });
       const sum = box.createDiv({ cls: "tl-summary" });
+      titleEl.classList.add("tl-title-colored");
+      dateEl.classList.add("tl-date-colored");
       if (cfg.colors.title) {
         titleEl.style.color = cfg.colors.title;
-        titleEl.classList.add("tl-title-colored");
       }
       if (cfg.colors.date) {
         dateEl.style.color = cfg.colors.date;
-        dateEl.classList.add("tl-date-colored");
       }
-      if (c.summary) sum.setText(c.summary);
+      if (c.summary) {
+        sum.setText(c.summary);
+      }
       if (media) {
         const aImg = media.createEl("a", {
           cls: "internal-link tl-hover-anchor",
@@ -272,13 +327,10 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
   applyFixedLineClamp(summaryEl, lines) {
     const n = Math.max(1, Math.floor(lines || this.settings.maxSummaryLines));
     summaryEl.classList.add("tl-clamp");
-    summaryEl.style.setProperty("--tl-summary-lines", String(n));
-    summaryEl.style.setProperty("--tl-summary-lh", "1.4");
-    summaryEl.style.display = "-webkit-box";
-    summaryEl.style.WebkitBoxOrient = "vertical";
-    summaryEl.style.WebkitLineClamp = String(n);
-    summaryEl.style.maxHeight = `calc(${n} * 1.4em)`;
-    summaryEl.style.overflow = "hidden";
+    setCssProps(summaryEl, {
+      "--tl-summary-lines": String(n),
+      "--tl-summary-lh": "1.4"
+    });
   }
   formatRange(a, b) {
     const f = (x) => `${x.d} ${x.mName ?? x.m} ${x.y}`;
@@ -289,23 +341,25 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     return sameMY ? `${a.d}\u2013${b.d} ${a.mName ?? a.m} ${a.y}` : `${f(a)} \u2013 ${f(b)}`;
   }
   parseFcDate(val) {
+    if (!val) return null;
     if (typeof val === "string") {
       const m = val.trim().match(/^(\d{1,6})-(\d{1,2})-(\d{1,2})/);
       return m ? { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) } : null;
-    } else if (val && typeof val === "object") {
-      const y = Number(val.year);
-      const d = Number(val.day);
-      const mRaw = val.month;
-      let m;
-      if (typeof mRaw === "number") m = mRaw;
-      else {
-        const months = this.getMonths();
-        const idx = months.findIndex((x) => x.toLowerCase() === String(mRaw).toLowerCase());
-        m = idx >= 0 ? idx + 1 : Number(mRaw) || 1;
-      }
-      return { y, m, d };
     }
-    return null;
+    const y = Number(val.year);
+    const d = Number(val.day);
+    const mRaw = val.month;
+    let mNum;
+    if (typeof mRaw === "number") {
+      mNum = mRaw;
+    } else {
+      const months = this.getMonths();
+      const idx = months.findIndex(
+        (x) => x.toLowerCase() === String(mRaw).toLowerCase()
+      );
+      mNum = idx >= 0 ? idx + 1 : Number(mRaw) || 1;
+    }
+    return { y, m: mNum, d };
   }
   getMonths(calKey) {
     if (calKey) {
@@ -374,15 +428,21 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     base.months = tl.months ?? (!this.settings.migratedLegacy ? this.settings.monthOverrides[name] : void 0);
     return base;
   }
-  async resolveImageSrc(file, fm, sourcePath) {
+  resolveImageSrc(file, fm, sourcePath) {
     const tryResolveLink = (link) => {
       if (/^https?:\/\//i.test(link)) return link;
-      const dest = this.app.metadataCache.getFirstLinkpathDest(link, sourcePath);
-      if (dest && dest instanceof import_obsidian.TFile) return this.app.vault.getResourcePath(dest);
+      const dest = this.app.metadataCache.getFirstLinkpathDest(
+        link,
+        sourcePath
+      );
+      if (dest && dest instanceof import_obsidian.TFile) {
+        return this.app.vault.getResourcePath(dest);
+      }
       return void 0;
     };
-    if (fm?.["tl-image"]) {
-      const src = tryResolveLink(String(fm["tl-image"]));
+    const fmImage = fm["tl-image"];
+    if (typeof fmImage === "string") {
+      const src = tryResolveLink(fmImage);
       if (src) return src;
     }
     const cache = this.app.metadataCache.getFileCache(file);
@@ -398,8 +458,10 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         if (src) return src;
       }
     }
-    const parent = this.app.vault.getAbstractFileByPath(file.parent?.path ?? "");
-    if (parent && "children" in parent) {
+    const parent = this.app.vault.getAbstractFileByPath(
+      file.parent?.path ?? ""
+    );
+    if (parent instanceof import_obsidian.TFolder) {
       for (const ch of parent.children) {
         if (ch instanceof import_obsidian.TFile && /\.(png|jpe?g|webp|gif|avif)$/i.test(ch.name)) {
           return this.app.vault.getResourcePath(ch);
@@ -408,16 +470,22 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     }
     return void 0;
   }
-  async findImageForFile(file) {
+  findImageForFile(file) {
     const cache = this.app.metadataCache.getFileCache(file);
     for (const e of cache?.embeds ?? []) {
-      if (/\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(e.link)) return e.link;
+      if (/\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(e.link)) {
+        return e.link;
+      }
     }
     for (const l of cache?.links ?? []) {
-      if (/\.(png|jpe?g|webp|gif|avif)$/i.test(l.link)) return l.link;
+      if (/\.(png|jpe?g|webp|gif|avif)$/i.test(l.link)) {
+        return l.link;
+      }
     }
-    const parent = this.app.vault.getAbstractFileByPath(file.parent?.path ?? "");
-    if (parent && "children" in parent) {
+    const parent = this.app.vault.getAbstractFileByPath(
+      file.parent?.path ?? ""
+    );
+    if (parent instanceof import_obsidian.TFolder) {
       for (const ch of parent.children) {
         if (ch instanceof import_obsidian.TFile && /\.(png|jpe?g|webp|gif|avif)$/i.test(ch.name)) {
           return ch.path;
@@ -437,18 +505,27 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         sourcePath
       });
     };
-    anchorEl.addEventListener("mouseenter", (e) => openPopover(e));
+    anchorEl.addEventListener(
+      "mouseenter",
+      (e) => openPopover(e)
+    );
     let t = null;
-    anchorEl.addEventListener("touchstart", (e) => {
-      t = window.setTimeout(() => openPopover(e), 350);
-    }, { passive: true });
+    anchorEl.addEventListener(
+      "touchstart",
+      (e) => {
+        t = window.setTimeout(() => openPopover(e), 350);
+      },
+      { passive: true }
+    );
     const clear = () => {
       if (t) {
-        clearTimeout(t);
+        window.clearTimeout(t);
         t = null;
       }
     };
-    ["touchend", "touchmove", "touchcancel"].forEach((ev) => anchorEl.addEventListener(ev, clear, { passive: true }));
+    ["touchend", "touchmove", "touchcancel"].forEach(
+      (ev) => anchorEl.addEventListener(ev, clear, { passive: true })
+    );
   }
   async extractFirstParagraph(file) {
     try {
@@ -459,16 +536,21 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         if (/^(#{1,6}\s|>\s|[-*+]\s|\d+\.\s)/.test(p)) continue;
         let clean = p.replace(/!\[[^\]]*\]\([^)]+\)/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/`{1,3}[^`]*`{1,3}/g, "").replace(/[*_~]/g, "").replace(/\s+/g, " ").trim();
         if (clean) {
-          if (clean.length > 400) clean = clean.slice(0, 397) + "\u2026";
+          if (clean.length > 400) clean = `${clean.slice(0, 397)}\u2026`;
           return clean;
         }
       }
-    } catch {
+    } catch (e) {
+      console.debug("simple-timeline: unable to extract summary", e);
     }
     return void 0;
   }
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign(
+      {},
+      DEFAULT_SETTINGS,
+      await this.loadData()
+    );
   }
   async saveSettings() {
     await this.saveData(this.settings);
@@ -481,7 +563,9 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     ]);
     for (const k of keys) {
       if (!k) continue;
-      if (!this.settings.timelineConfigs[k]) this.settings.timelineConfigs[k] = {};
+      if (!this.settings.timelineConfigs[k]) {
+        this.settings.timelineConfigs[k] = {};
+      }
       const tl = this.settings.timelineConfigs[k];
       const so = this.settings.styleOverrides[k];
       if (so) {
@@ -510,9 +594,11 @@ var InputModal = class extends import_obsidian.Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    if (this.titleText) contentEl.createEl("h3", { text: this.titleText });
+    if (this.titleText) {
+      contentEl.createEl("h3", { text: this.titleText });
+    }
     const input = contentEl.createEl("input", { type: "text" });
-    input.style.width = "100%";
+    setCssProps(input, { width: "100%" });
     input.placeholder = this.placeholder ?? "";
     if (this.valueInit != null) input.value = this.valueInit;
     const btns = contentEl.createDiv({ cls: "modal-button-container" });
@@ -526,7 +612,7 @@ var InputModal = class extends import_obsidian.Modal {
       this.close();
       this.resolve(null);
     });
-    setTimeout(() => {
+    window.setTimeout(() => {
       input.focus();
       input.select();
     }, 50);
@@ -536,13 +622,15 @@ var InputModal = class extends import_obsidian.Modal {
     contentEl.empty();
   }
   waitForClose() {
-    return new Promise((res) => this.resolve = res);
+    return new Promise((res) => {
+      this.resolve = res;
+    });
   }
 };
 async function promptModal(app, opts) {
   const m = new InputModal(app, opts);
   m.open();
-  return await m.waitForClose();
+  return m.waitForClose();
 }
 var TimelineConfigModal = class extends import_obsidian.Modal {
   constructor(app, plugin, params) {
@@ -559,16 +647,23 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
     });
     let key = this.initialKey ?? "";
     const cfg = this.initialCfg ?? {};
-    new import_obsidian.Setting(contentEl).setName("Name").setDesc("Example: Travel").addText((t) => t.setValue(key).onChange((v) => key = v.trim()));
+    new import_obsidian.Setting(contentEl).setName("Name").setDesc("Example: Travel").addText(
+      (t) => t.setValue(key).onChange((v) => {
+        key = v.trim();
+      })
+    );
     const addNum = (name, prop, ph) => new import_obsidian.Setting(contentEl).setName(name).setDesc("Empty = use defaults").addText((t) => {
       const cur = cfg[prop];
       t.setPlaceholder(ph).setValue(cur != null ? String(cur) : "");
       t.onChange((v) => {
         const vv = v.trim();
-        if (vv === "") cfg[prop] = void 0;
-        else {
+        if (vv === "") {
+          delete cfg[prop];
+        } else {
           const n = Number(vv);
-          if (Number.isFinite(n)) cfg[prop] = Math.floor(n);
+          if (Number.isFinite(n)) {
+            cfg[prop] = Math.floor(n);
+          }
         }
       });
     });
@@ -581,34 +676,46 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
     cfg.colors || (cfg.colors = {});
     new import_obsidian.Setting(contentEl).setName("Box background").setDesc("Empty = default/theme color").addColorPicker((cp) => {
       cp.setValue(cfg.colors.bg || "");
-      cp.onChange((v) => cfg.colors.bg = v || void 0);
+      cp.onChange((v) => {
+        cfg.colors.bg = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Box border").setDesc("Empty = default/theme color").addColorPicker((cp) => {
       cp.setValue(cfg.colors.accent || "");
-      cp.onChange((v) => cfg.colors.accent = v || void 0);
+      cp.onChange((v) => {
+        cfg.colors.accent = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Hover background").setDesc("Empty = default/theme color").addColorPicker((cp) => {
       cp.setValue(cfg.colors.hover || "");
-      cp.onChange((v) => cfg.colors.hover = v || void 0);
+      cp.onChange((v) => {
+        cfg.colors.hover = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Title color").setDesc("Empty = default/theme color").addColorPicker((cp) => {
       cp.setValue(cfg.colors.title || "");
-      cp.onChange((v) => cfg.colors.title = v || void 0);
+      cp.onChange((v) => {
+        cfg.colors.title = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Date color").setDesc("Empty = default/theme color").addColorPicker((cp) => {
       cp.setValue(cfg.colors.date || "");
-      cp.onChange((v) => cfg.colors.date = v || void 0);
+      cp.onChange((v) => {
+        cfg.colors.date = v || void 0;
+      });
     });
-    let monthsText = Array.isArray(cfg.months) ? cfg.months.join(", ") : cfg.months ?? "";
+    let monthsText = Array.isArray(cfg.months) && cfg.months.length > 0 ? cfg.months.join(", ") : cfg.months ?? "";
     new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Comma\u2011separated or YAML list (empty = English months)").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setValue(monthsText);
-      ta.onChange((v) => monthsText = v);
+      ta.onChange((v) => {
+        monthsText = v;
+      });
     });
     const btns = contentEl.createDiv({ cls: "modal-button-container" });
     const saveBtn = btns.createEl("button", { text: "Save" });
     const cancelBtn = btns.createEl("button", { text: "Cancel" });
-    saveBtn.addEventListener("click", async () => {
+    saveBtn.addEventListener("click", () => {
       const k = key.trim();
       if (!k) {
         new import_obsidian.Notice("Please enter a name.");
@@ -628,7 +735,9 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
     this.contentEl.empty();
   }
   waitForClose() {
-    return new Promise((res) => this.resolve = res);
+    return new Promise((res) => {
+      this.resolve = res;
+    });
   }
 };
 function parseMonths(text) {
@@ -636,11 +745,16 @@ function parseMonths(text) {
   try {
     if (text.includes("\n") && /(\n-|\n\s*-)/.test(text)) {
       const y = (0, import_obsidian.parseYaml)(text);
-      if (Array.isArray(y)) return y.map(String).filter(Boolean);
+      if (Array.isArray(y)) {
+        return y.map((v) => String(v)).filter(Boolean);
+      }
     }
-  } catch {
+  } catch (e) {
+    console.debug("simple-timeline: invalid months YAML", e);
   }
-  if (text.includes(",")) return text.split(",").map((s) => s.trim()).filter(Boolean);
+  if (text.includes(",")) {
+    return text.split(",").map((s) => s.trim()).filter(Boolean);
+  }
   return text.trim();
 }
 var DefaultsModal = class extends import_obsidian.Modal {
@@ -666,7 +780,21 @@ var DefaultsModal = class extends import_obsidian.Modal {
       t.setValue(String(this.draft[key]));
       t.onChange((v) => {
         const n = Number(v);
-        if (Number.isFinite(n)) this.draft[key] = Math.floor(n);
+        if (Number.isFinite(n)) {
+          if (key === "maxSummaryLines") {
+            this.draft.maxSummaryLines = Math.floor(n);
+          } else if (key === "cardWidth") {
+            this.draft.cardWidth = Math.floor(n);
+          } else if (key === "cardHeight") {
+            this.draft.cardHeight = Math.floor(n);
+          } else if (key === "boxHeight") {
+            this.draft.boxHeight = Math.floor(n);
+          } else if (key === "sideGapLeft") {
+            this.draft.sideGapLeft = Math.floor(n);
+          } else if (key === "sideGapRight") {
+            this.draft.sideGapRight = Math.floor(n);
+          }
+        }
       });
     });
     addNum("Image width", "cardWidth", "200");
@@ -677,23 +805,33 @@ var DefaultsModal = class extends import_obsidian.Modal {
     addNum("Max. summary lines", "maxSummaryLines", "7");
     new import_obsidian.Setting(contentEl).setName("Box background (default)").setDesc("Empty = theme color").addColorPicker((cp) => {
       cp.setValue(this.draft.colors.bg || "");
-      cp.onChange((v) => this.draft.colors.bg = v || void 0);
+      cp.onChange((v) => {
+        this.draft.colors.bg = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Box border (default)").setDesc("Empty = theme color").addColorPicker((cp) => {
       cp.setValue(this.draft.colors.accent || "");
-      cp.onChange((v) => this.draft.colors.accent = v || void 0);
+      cp.onChange((v) => {
+        this.draft.colors.accent = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Hover background (default)").setDesc("Empty = var(--interactive-accent)").addColorPicker((cp) => {
       cp.setValue(this.draft.colors.hover || "");
-      cp.onChange((v) => this.draft.colors.hover = v || void 0);
+      cp.onChange((v) => {
+        this.draft.colors.hover = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Title color (default)").setDesc("Empty = theme color").addColorPicker((cp) => {
       cp.setValue(this.draft.colors.title || "");
-      cp.onChange((v) => this.draft.colors.title = v || void 0);
+      cp.onChange((v) => {
+        this.draft.colors.title = v || void 0;
+      });
     });
     new import_obsidian.Setting(contentEl).setName("Date color (default)").setDesc("Empty = theme color").addColorPicker((cp) => {
       cp.setValue(this.draft.colors.date || "");
-      cp.onChange((v) => this.draft.colors.date = v || void 0);
+      cp.onChange((v) => {
+        this.draft.colors.date = v || void 0;
+      });
     });
     const btns = contentEl.createDiv({ cls: "modal-button-container" });
     const saveBtn = btns.createEl("button", { text: "Save" });
@@ -719,7 +857,9 @@ var DefaultsModal = class extends import_obsidian.Modal {
     this.contentEl.empty();
   }
   waitForClose() {
-    return new Promise((res) => this.resolve = res);
+    return new Promise((res) => {
+      this.resolve = res;
+    });
   }
 };
 var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
@@ -730,9 +870,11 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Simple Timeline \u2013 Settings" });
-    containerEl.createEl("h3", { text: "Timelines" });
-    new import_obsidian.Setting(containerEl).setName("Global defaults").setDesc("Used by all timelines that do not define their own values (including default colors).").addButton(
+    new import_obsidian.Setting(containerEl).setName("Simple Timeline \u2013 Settings").setHeading();
+    new import_obsidian.Setting(containerEl).setName("Timelines").setHeading();
+    new import_obsidian.Setting(containerEl).setName("Global defaults").setDesc(
+      "Used by all timelines that do not define their own values (including default colors)."
+    ).addButton(
       (b) => b.setButtonText("Edit").onClick(async () => {
         const saved = await openDefaultsWizard(this.app, this.plugin);
         if (saved) {
@@ -742,7 +884,9 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
         }
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Timeline configurations").setDesc("Custom sizes, colors and month names per timeline.").addButton(
+    new import_obsidian.Setting(containerEl).setName("Timeline configurations").setDesc(
+      "Custom sizes, colors and month names per timeline."
+    ).addButton(
       (b) => b.setButtonText("New timeline").onClick(async () => {
         const result = await openTimelineWizard(this.app, this.plugin);
         if (result) {
@@ -758,7 +902,11 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
       const row = new import_obsidian.Setting(containerEl).setName(key);
       row.addButton(
         (b) => b.setButtonText("Edit").onClick(async () => {
-          const result = await openTimelineWizard(this.app, this.plugin, key);
+          const result = await openTimelineWizard(
+            this.app,
+            this.plugin,
+            key
+          );
           if (result) {
             this.display();
             new import_obsidian.Notice(`Timeline \u201C${result.key}\u201D saved.`);
@@ -774,7 +922,9 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
         })
       );
     }
-    const hint = containerEl.createDiv({ cls: "setting-item-description" });
+    const hint = containerEl.createDiv({
+      cls: "setting-item-description"
+    });
     hint.textContent = "Note: older \u201Cstyles per timeline\u201D / \u201Cmonth overrides\u201D were migrated once and will not be imported again.";
   }
 };
