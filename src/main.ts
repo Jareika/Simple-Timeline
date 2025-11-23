@@ -111,6 +111,23 @@ interface TimelineBlockOptions {
 
 type FrontmatterLike = Record<string, unknown>;
 
+/* numeric settings we edit via the wizards */
+type TimelineNumericKey =
+  | "maxSummaryLines"
+  | "cardWidth"
+  | "cardHeight"
+  | "boxHeight"
+  | "sideGapLeft"
+  | "sideGapRight";
+
+type DefaultsNumericKey =
+  | "cardWidth"
+  | "cardHeight"
+  | "boxHeight"
+  | "sideGapLeft"
+  | "sideGapRight"
+  | "maxSummaryLines";
+
 /* =========================================
    Small helpers
    ========================================= */
@@ -145,7 +162,7 @@ export default class SimpleTimeline extends Plugin {
 
     this.addCommand({
       id: "set-cal-date",
-      name: "Timeline: Set date",
+      name: "Timeline set date",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -155,7 +172,7 @@ export default class SimpleTimeline extends Plugin {
     });
     this.addCommand({
       id: "set-cal-range",
-      name: "Timeline: Set date range",
+      name: "Timeline set date range",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -165,7 +182,7 @@ export default class SimpleTimeline extends Plugin {
     });
     this.addCommand({
       id: "edit-timelines",
-      name: "Timeline: Edit timelines",
+      name: "Timeline edit timelines",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -175,7 +192,7 @@ export default class SimpleTimeline extends Plugin {
     });
     this.addCommand({
       id: "set-summary",
-      name: "Timeline: Set summary",
+      name: "Timeline set summary",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -185,7 +202,7 @@ export default class SimpleTimeline extends Plugin {
     });
     this.addCommand({
       id: "adopt-first-image",
-      name: "Timeline: Use first image as tl-image",
+      name: "Timeline use first image as tl image",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -221,21 +238,21 @@ export default class SimpleTimeline extends Plugin {
         })
       : null;
 
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        (fm as FrontmatterLike)["fc-date"] = this.tryParseYamlOrString(start);
-        if (range && end) {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-          (fm as FrontmatterLike)["fc-end"] = this.tryParseYamlOrString(end);
-        } else if (!range) {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-          delete (fm as FrontmatterLike)["fc-end"];
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm: FrontmatterLike) => {
+        try {
+          fm["fc-date"] = this.tryParseYamlOrString(start);
+          if (range && end) {
+            fm["fc-end"] = this.tryParseYamlOrString(end);
+          } else if (!range) {
+            delete fm["fc-end"];
+          }
+        } catch {
+          new Notice("Invalid date.");
         }
-      } catch {
-        new Notice("Invalid date.");
       }
-    });
+    );
   }
 
   private async promptEditTimelines(file: TFile) {
@@ -251,10 +268,12 @@ export default class SimpleTimeline extends Plugin {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      (fm as FrontmatterLike)["timelines"] = arr;
-    });
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm: FrontmatterLike) => {
+        fm["timelines"] = arr;
+      }
+    );
   }
 
   private async promptSetSummary(file: TFile) {
@@ -267,10 +286,12 @@ export default class SimpleTimeline extends Plugin {
       placeholder: "Multi-line allowed (YAML | or |- in frontmatter)"
     });
     if (val == null) return;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      (fm as FrontmatterLike)["tl-summary"] = String(val);
-    });
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm: FrontmatterLike) => {
+        fm["tl-summary"] = String(val);
+      }
+    );
   }
 
   private async adoptFirstImage(file: TFile) {
@@ -279,11 +300,13 @@ export default class SimpleTimeline extends Plugin {
       new Notice("No image found.");
       return;
     }
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      (fm as FrontmatterLike)["tl-image"] = link;
-    });
-    new Notice("tl-image set from first image.");
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm: FrontmatterLike) => {
+        fm["tl-image"] = link;
+      }
+    );
+    new Notice("Timeline image set from first image.");
   }
 
   private tryParseYamlOrString(input: string): unknown {
@@ -310,7 +333,6 @@ export default class SimpleTimeline extends Plugin {
       opts = (parseYaml(src) as TimelineBlockOptions) ?? {};
     } catch (e) {
       // ignore invalid options YAML
-      // eslint-disable-next-line no-console
       console.debug("simple-timeline: invalid block options", e);
     }
 
@@ -369,9 +391,23 @@ export default class SimpleTimeline extends Plugin {
 
       const title = String(fm["tl-title"] ?? f.basename);
 
-      let summary: string | undefined = fm["tl-summary"]
-        ? String(fm["tl-summary"])
-        : undefined;
+      const rawSummary = fm["tl-summary"];
+      let summary: string | undefined;
+      if (typeof rawSummary === "string") {
+        summary = rawSummary;
+      } else if (
+        typeof rawSummary === "number" ||
+        typeof rawSummary === "boolean"
+      ) {
+        summary = String(rawSummary);
+      } else if (rawSummary != null) {
+        // Fallback for unexpected structures: serialize instead of "[object Object]"
+        try {
+          summary = JSON.stringify(rawSummary);
+        } catch {
+          summary = undefined;
+        }
+      }
 
       if (!summary) {
         summary = await this.extractFirstParagraph(f);
@@ -469,27 +505,27 @@ export default class SimpleTimeline extends Plugin {
         "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
       });
 
-	  const titleEl = box.createEl("h1", {
-		cls: "tl-title",
-		text: c.title
-	  });
-	  const dateEl = box.createEl("h4", {
-		cls: "tl-date",
-		text: this.formatRange(c.start, c.end)
-	  });
-	  const sum = box.createDiv({ cls: "tl-summary" });
+      const titleEl = box.createEl("h1", {
+        cls: "tl-title",
+        text: c.title
+      });
+      const dateEl = box.createEl("h4", {
+        cls: "tl-date",
+        text: this.formatRange(c.start, c.end)
+      });
+      const sum = box.createDiv({ cls: "tl-summary" });
 
-	  // Immer: Klassen hinzufügen, damit die ::after‑Balken aktiv werden
-	  titleEl.classList.add("tl-title-colored");
-	  dateEl.classList.add("tl-date-colored");
+      // Klassen hinzufügen, damit die ::after‑Balken aktiv werden
+      titleEl.classList.add("tl-title-colored");
+      dateEl.classList.add("tl-date-colored");
 
-	  // Optional: Farbe überschreiben, falls in den Settings gesetzt
-	  if (cfg.colors.title) {
-		titleEl.style.color = cfg.colors.title;
-	  }
-	  if (cfg.colors.date) {
-		dateEl.style.color = cfg.colors.date;
-	  }
+      // Optional: Farbe überschreiben, falls in den Settings gesetzt
+      if (cfg.colors.title) {
+        titleEl.style.color = cfg.colors.title;
+      }
+      if (cfg.colors.date) {
+        dateEl.style.color = cfg.colors.date;
+      }
 
       if (c.summary) {
         sum.setText(c.summary);
@@ -836,7 +872,6 @@ export default class SimpleTimeline extends Plugin {
         }
       }
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.debug("simple-timeline: unable to extract summary", e);
     }
     return undefined;
@@ -985,38 +1020,38 @@ class TimelineConfigModal extends Modal {
     let key = this.initialKey ?? "";
     const cfg: TimelineConfig = this.initialCfg ?? {};
 
-    new Setting(contentEl)
-      .setName("Name")
-      .setDesc("Example: Travel")
-      .addText((t) =>
-        t.setValue(key).onChange((v) => {
-          key = v.trim();
-        })
-      );
-
     const addNum = (
       name: string,
-      prop: keyof TimelineConfig,
+      prop: TimelineNumericKey,
       ph: string
     ) =>
       new Setting(contentEl)
         .setName(name)
         .setDesc("Empty = use defaults")
         .addText((t) => {
-          const cur = cfg[prop] as number | undefined;
+          const cur = cfg[prop];
           t.setPlaceholder(ph).setValue(cur != null ? String(cur) : "");
           t.onChange((v) => {
             const vv = v.trim();
             if (vv === "") {
-              delete (cfg as TimelineConfig)[prop];
+              delete cfg[prop];
             } else {
               const n = Number(vv);
               if (Number.isFinite(n)) {
-                (cfg as TimelineConfig)[prop] = Math.floor(n) as never;
+                cfg[prop] = Math.floor(n);
               }
             }
           });
         });
+
+    new Setting(contentEl)
+      .setName("Name")
+      .setDesc("Example: travel")
+      .addText((t) =>
+        t.setValue(key).onChange((v) => {
+          key = v.trim();
+        })
+      );
 
     addNum("Max. summary lines", "maxSummaryLines", "e.g. 7");
     addNum("Image width", "cardWidth", "e.g. 200");
@@ -1083,7 +1118,7 @@ class TimelineConfigModal extends Modal {
 
     new Setting(contentEl)
       .setName("Month names")
-      .setDesc("Comma‑separated or YAML list (empty = English months)")
+      .setDesc("Comma-separated (,) or YAML list (empty = English months)")
       .addTextArea((ta) => {
         ta.inputEl.rows = 3;
         ta.setValue(monthsText);
@@ -1135,7 +1170,6 @@ function parseMonths(text: string): string[] | string | undefined {
       }
     }
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.debug("simple-timeline: invalid months YAML", e);
   }
 
@@ -1190,14 +1224,14 @@ class DefaultsModal extends Modal {
 
     const addNum = (
       name: string,
-      key: keyof DefaultsModal["draft"],
+      key: DefaultsNumericKey,
       placeholder: string
     ) =>
       new Setting(contentEl)
         .setName(name)
         .addText((t) => {
           t.setPlaceholder(placeholder);
-          t.setValue(String(this.draft[key] as number));
+          t.setValue(String(this.draft[key]));
           t.onChange((v) => {
             const n = Number(v);
             if (Number.isFinite(n)) {
@@ -1325,11 +1359,6 @@ class SimpleTimelineSettingsTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl)
-      .setName("Simple Timeline – Settings")
-      .setHeading();
-
-    new Setting(containerEl).setName("Timelines").setHeading();
 
     new Setting(containerEl)
       .setName("Global defaults")
@@ -1349,9 +1378,7 @@ class SimpleTimelineSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Timeline configurations")
-      .setDesc(
-        "Custom sizes, colors and month names per timeline."
-      )
+      .setDesc("Custom sizes, colors and month names per timeline.")
       .addButton((b) =>
         b.setButtonText("New timeline").onClick(async () => {
           const result = await openTimelineWizard(this.app, this.plugin);

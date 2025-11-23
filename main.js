@@ -58,7 +58,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     );
     this.addCommand({
       id: "set-cal-date",
-      name: "Timeline: Set date",
+      name: "Timeline set date",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -68,7 +68,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     });
     this.addCommand({
       id: "set-cal-range",
-      name: "Timeline: Set date range",
+      name: "Timeline set date range",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -78,7 +78,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     });
     this.addCommand({
       id: "edit-timelines",
-      name: "Timeline: Edit timelines",
+      name: "Timeline edit timelines",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -88,7 +88,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     });
     this.addCommand({
       id: "set-summary",
-      name: "Timeline: Set summary",
+      name: "Timeline set summary",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -98,7 +98,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     });
     this.addCommand({
       id: "adopt-first-image",
-      name: "Timeline: Use first image as tl-image",
+      name: "Timeline use first image as tl image",
       checkCallback: (checking) => {
         const file = this.getActiveFile();
         if (!file) return false;
@@ -125,18 +125,21 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       title: "Set fc-end (optional)",
       placeholder: "leave empty for no end"
     }) : null;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      try {
-        fm["fc-date"] = this.tryParseYamlOrString(start);
-        if (range && end) {
-          fm["fc-end"] = this.tryParseYamlOrString(end);
-        } else if (!range) {
-          delete fm["fc-end"];
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm) => {
+        try {
+          fm["fc-date"] = this.tryParseYamlOrString(start);
+          if (range && end) {
+            fm["fc-end"] = this.tryParseYamlOrString(end);
+          } else if (!range) {
+            delete fm["fc-end"];
+          }
+        } catch {
+          new import_obsidian.Notice("Invalid date.");
         }
-      } catch {
-        new import_obsidian.Notice("Invalid date.");
       }
-    });
+    );
   }
   async promptEditTimelines(file) {
     const cur = this.app.metadataCache.getFileCache(file)?.frontmatter?.["timelines"];
@@ -147,9 +150,12 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     });
     if (val == null) return;
     const arr = String(val).split(",").map((s) => s.trim()).filter(Boolean);
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      fm["timelines"] = arr;
-    });
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm) => {
+        fm["timelines"] = arr;
+      }
+    );
   }
   async promptSetSummary(file) {
     const cur = this.app.metadataCache.getFileCache(file)?.frontmatter?.["tl-summary"] ?? "";
@@ -159,9 +165,12 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       placeholder: "Multi-line allowed (YAML | or |- in frontmatter)"
     });
     if (val == null) return;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      fm["tl-summary"] = String(val);
-    });
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm) => {
+        fm["tl-summary"] = String(val);
+      }
+    );
   }
   async adoptFirstImage(file) {
     const link = this.findImageForFile(file);
@@ -169,10 +178,13 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       new import_obsidian.Notice("No image found.");
       return;
     }
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      fm["tl-image"] = link;
-    });
-    new import_obsidian.Notice("tl-image set from first image.");
+    await this.app.fileManager.processFrontMatter(
+      file,
+      (fm) => {
+        fm["tl-image"] = link;
+      }
+    );
+    new import_obsidian.Notice("Timeline image set from first image.");
   }
   tryParseYamlOrString(input) {
     const trimmed = String(input).trim();
@@ -212,7 +224,19 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       const mNameStart = months[(start.m - 1 + months.length) % months.length] ?? String(start.m);
       const mNameEnd = end ? months[(end.m - 1 + months.length) % months.length] ?? String(end.m) : void 0;
       const title = String(fm["tl-title"] ?? f.basename);
-      let summary = fm["tl-summary"] ? String(fm["tl-summary"]) : void 0;
+      const rawSummary = fm["tl-summary"];
+      let summary;
+      if (typeof rawSummary === "string") {
+        summary = rawSummary;
+      } else if (typeof rawSummary === "number" || typeof rawSummary === "boolean") {
+        summary = String(rawSummary);
+      } else if (rawSummary != null) {
+        try {
+          summary = JSON.stringify(rawSummary);
+        } catch {
+          summary = void 0;
+        }
+      }
       if (!summary) {
         summary = await this.extractFirstParagraph(f);
       }
@@ -647,11 +671,6 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
     });
     let key = this.initialKey ?? "";
     const cfg = this.initialCfg ?? {};
-    new import_obsidian.Setting(contentEl).setName("Name").setDesc("Example: Travel").addText(
-      (t) => t.setValue(key).onChange((v) => {
-        key = v.trim();
-      })
-    );
     const addNum = (name, prop, ph) => new import_obsidian.Setting(contentEl).setName(name).setDesc("Empty = use defaults").addText((t) => {
       const cur = cfg[prop];
       t.setPlaceholder(ph).setValue(cur != null ? String(cur) : "");
@@ -667,6 +686,11 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
         }
       });
     });
+    new import_obsidian.Setting(contentEl).setName("Name").setDesc("Example: travel").addText(
+      (t) => t.setValue(key).onChange((v) => {
+        key = v.trim();
+      })
+    );
     addNum("Max. summary lines", "maxSummaryLines", "e.g. 7");
     addNum("Image width", "cardWidth", "e.g. 200");
     addNum("Image height", "cardHeight", "e.g. 315");
@@ -705,7 +729,7 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
       });
     });
     let monthsText = Array.isArray(cfg.months) && cfg.months.length > 0 ? cfg.months.join(", ") : cfg.months ?? "";
-    new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Comma\u2011separated or YAML list (empty = English months)").addTextArea((ta) => {
+    new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Comma-separated (,) or YAML list (empty = English months)").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setValue(monthsText);
       ta.onChange((v) => {
@@ -870,8 +894,6 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("Simple Timeline \u2013 Settings").setHeading();
-    new import_obsidian.Setting(containerEl).setName("Timelines").setHeading();
     new import_obsidian.Setting(containerEl).setName("Global defaults").setDesc(
       "Used by all timelines that do not define their own values (including default colors)."
     ).addButton(
@@ -884,9 +906,7 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
         }
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Timeline configurations").setDesc(
-      "Custom sizes, colors and month names per timeline."
-    ).addButton(
+    new import_obsidian.Setting(containerEl).setName("Timeline configurations").setDesc("Custom sizes, colors and month names per timeline.").addButton(
       (b) => b.setButtonText("New timeline").onClick(async () => {
         const result = await openTimelineWizard(this.app, this.plugin);
         if (result) {
