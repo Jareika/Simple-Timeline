@@ -6,7 +6,6 @@ import {
   Plugin,
   PluginSettingTab,
   Setting,
-  TAbstractFile,
   TFile,
   TFolder,
   parseYaml
@@ -826,7 +825,7 @@ export default class SimpleTimeline extends Plugin {
     };
 
     anchorEl.addEventListener("mouseenter", (e) =>
-      openPopover(e as MouseEvent)
+      openPopover(e)
     );
     let t: number | null = null;
     anchorEl.addEventListener(
@@ -1118,7 +1117,7 @@ class TimelineConfigModal extends Modal {
 
     new Setting(contentEl)
       .setName("Month names")
-      .setDesc("Comma-separated (,) or YAML list (empty = English months)")
+      .setDesc("Enter custom month names separated by commas, or leave blank to use English names.")
       .addTextArea((ta) => {
         ta.inputEl.rows = 3;
         ta.setValue(monthsText);

@@ -729,7 +729,7 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
       });
     });
     let monthsText = Array.isArray(cfg.months) && cfg.months.length > 0 ? cfg.months.join(", ") : cfg.months ?? "";
-    new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Comma-separated (,) or YAML list (empty = English months)").addTextArea((ta) => {
+    new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Enter custom month names separated by commas, or leave blank to use English names.").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setValue(monthsText);
       ta.onChange((v) => {
