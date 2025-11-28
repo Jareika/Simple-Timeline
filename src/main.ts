@@ -1117,7 +1117,7 @@ class TimelineConfigModal extends Modal {
 
     new Setting(contentEl)
       .setName("Month names")
-      .setDesc("Enter custom month names separated by commas, or leave blank to use English names.")
+      .setDesc("You can use custom month names. Example: Lunareth, Veloria, Obscyra...")
       .addTextArea((ta) => {
         ta.inputEl.rows = 3;
         ta.setValue(monthsText);
