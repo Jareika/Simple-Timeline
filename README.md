@@ -36,6 +36,7 @@ Until it is available in the community plugin browser, you can install it manual
 1. Build the plugin (or download a release ZIP, if available).
 2. Copy the contents (`main.js`, `manifest.json`, `styles.css` and `versions.json`) into a folder named `simple-timeline` inside your vault’s `.obsidian/plugins` directory.
 3. Enable **Simple Timeline** in *Settings → Community plugins*.
+4. Custom month names: In your timeline settings you can write down your own fantasy or whatever month names, just separate them with commas (,).
 
 Minimum Obsidian version: `1.6.7`.
 

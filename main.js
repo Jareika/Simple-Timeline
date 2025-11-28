@@ -729,7 +729,7 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
       });
     });
     let monthsText = Array.isArray(cfg.months) && cfg.months.length > 0 ? cfg.months.join(", ") : cfg.months ?? "";
-    new import_obsidian.Setting(contentEl).setName("Custom month names").setDesc("E.g. lunareth, veloria, obscyra.").addTextArea((ta) => {
+    new import_obsidian.Setting(contentEl).setName("Custom month names").setDesc("See documentation.").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setValue(monthsText);
       ta.onChange((v) => {
