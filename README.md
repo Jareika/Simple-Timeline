@@ -1,4 +1,4 @@
-# Simple Timeline
+# TTRPG Tools: Timeline
 
 Simple Timeline is an Obsidian plugin that renders visual timelines from note frontmatter.
 
