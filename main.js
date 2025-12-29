@@ -36,7 +36,8 @@ var DEFAULT_SETTINGS = {
   timelineConfigs: {},
   monthOverrides: {},
   styleOverrides: {},
-  migratedLegacy: false
+  migratedLegacy: false,
+  enableBasesIntegration: false
 };
 function setCssProps(el, props) {
   const style = el.style;
@@ -48,10 +49,12 @@ function setCssProps(el, props) {
     }
   }
 }
+var BASES_VIEW_TYPE_CROSS = "simple-timeline-cross";
 var SimpleTimeline = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
     await this.migrateLegacyToTimelineConfigs();
+    this.tryRegisterBasesViews();
     this.registerMarkdownCodeBlockProcessor(
       "timeline-cal",
       (src, el, ctx) => this.renderTimeline(src, el, ctx)
@@ -193,7 +196,315 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     }
     return trimmed;
   }
-  // ---------- Renderer ----------
+  // ---------- Bases integration ----------
+  /**
+   * Registers Bases views if:
+   * - user enabled it in plugin settings
+   * - Obsidian version exposes registerBasesView + BasesView
+   *
+   * Note: we do NOT import BasesView at top-level to avoid hard crashes on older Obsidian versions.
+   */
+  tryRegisterBasesViews() {
+    if (!this.settings.enableBasesIntegration) return;
+    const pluginAny = this;
+    const registerBasesView = pluginAny.registerBasesView;
+    if (typeof registerBasesView !== "function") {
+      console.debug(
+        "simple-timeline: Bases integration enabled, but registerBasesView is not available (Obsidian too old?)."
+      );
+      return;
+    }
+    const obsidianAny = require("obsidian");
+    const BasesView = obsidianAny.BasesView;
+    if (!BasesView) {
+      console.debug(
+        "simple-timeline: Bases integration enabled, but BasesView is not available (Obsidian too old?)."
+      );
+      return;
+    }
+    const plugin = this;
+    class TimelineBasesCrossView extends BasesView {
+      constructor(controller, parentEl) {
+        super(controller);
+        this.type = BASES_VIEW_TYPE_CROSS;
+        this.hostEl = parentEl.createDiv({ cls: "tl-bases-host" });
+        setCssProps(this.hostEl, {
+          boxSizing: "border-box",
+          paddingLeft: "var(--file-margins, 24px)",
+          paddingRight: "var(--file-margins, 24px)"
+        });
+      }
+      onDataUpdated() {
+        this.hostEl.empty();
+        const wrapper = this.hostEl.createDiv({
+          cls: "tl-wrapper tl-cross-mode"
+        });
+        const timelineConfigNameRaw = String(
+          this.config.get("timelineConfig") ?? ""
+        ).trim();
+        const timelineConfigName = timelineConfigNameRaw || void 0;
+        const startProp = String(
+          this.config.get("startProperty") ?? "note.fc-date"
+        );
+        const endProp = String(this.config.get("endProperty") ?? "note.fc-end");
+        const titleProp = String(
+          this.config.get("titleProperty") ?? "note.tl-title"
+        );
+        const summaryProp = String(
+          this.config.get("summaryProperty") ?? "note.tl-summary"
+        );
+        const imageProp = String(
+          this.config.get("imageProperty") ?? "note.tl-image"
+        );
+        const pAny = plugin;
+        const cfg = pAny.getConfigFor(timelineConfigName);
+        const months = pAny.getMonths(timelineConfigName);
+        const groups = this.data?.groupedData ?? [];
+        for (const group of groups) {
+          const keyVal = group.key;
+          const keyText = keyVal && typeof keyVal.toString === "function" ? keyVal.toString() : "";
+          if (keyText && keyText !== "null") {
+            const h = wrapper.createEl("h3", { text: keyText });
+            h.addClass("tl-bases-group-title");
+          }
+          const entries = group.entries ?? [];
+          for (const entry of entries) {
+            const file = entry?.file;
+            if (!file) continue;
+            const startValue = entry.getValue?.(startProp);
+            const start = this.valueToYmd(startValue);
+            if (!start) continue;
+            const endValue = endProp ? entry.getValue?.(endProp) : null;
+            const end = this.valueToYmd(endValue) ?? void 0;
+            const titleValue = titleProp ? entry.getValue?.(titleProp) : null;
+            const title = titleValue && !titleValue.isEmpty?.() ? String(titleValue.toString()) : file.basename;
+            let summary;
+            const summaryValue = summaryProp ? entry.getValue?.(summaryProp) : null;
+            if (summaryValue && !summaryValue.isEmpty?.()) {
+              summary = String(summaryValue.toString());
+            }
+            const buildRow = async () => {
+              if (!summary) {
+                summary = await pAny.extractFirstParagraph(file);
+              }
+              const imgSrc = this.resolveImageFromEntryValue(
+                entry,
+                imageProp,
+                file.path
+              );
+              const mNameStart = months[(start.m - 1 + months.length) % months.length] ?? String(start.m);
+              const mNameEnd = end ? months[(end.m - 1 + months.length) % months.length] ?? String(end.m) : void 0;
+              const card = {
+                file,
+                title,
+                summary,
+                start: { ...start, mName: mNameStart },
+                end: end ? { ...end, mName: mNameEnd } : void 0,
+                imgSrc,
+                primaryTl: timelineConfigName
+              };
+              this.renderCrossRow(wrapper, card, cfg);
+            };
+            void buildRow();
+          }
+        }
+      }
+      renderCrossRow(wrapper, c, cfg) {
+        const row = wrapper.createDiv({ cls: "tl-row" });
+        const W = cfg.cardWidth;
+        const H = cfg.cardHeight;
+        const BH = cfg.boxHeight;
+        setCssProps(row, {
+          paddingLeft: `${cfg.sideGapLeft}px`,
+          paddingRight: `${cfg.sideGapRight}px`,
+          "--tl-bg": cfg.colors.bg || "var(--background-primary)",
+          "--tl-accent": cfg.colors.accent || "var(--background-modifier-border)",
+          "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
+        });
+        const grid = row.createDiv({ cls: "tl-grid" });
+        setCssProps(grid, {
+          display: "grid",
+          alignItems: "center",
+          columnGap: "0"
+        });
+        const hasMedia = !!c.imgSrc;
+        setCssProps(grid, {
+          gridTemplateColumns: hasMedia ? `${W}px 1fr` : "1fr"
+        });
+        let media = null;
+        if (hasMedia && c.imgSrc) {
+          media = grid.createDiv({ cls: "tl-media" });
+          setCssProps(media, {
+            width: `${W}px`,
+            height: `${H}px`,
+            position: "relative"
+          });
+          const img = media.createEl("img", {
+            attr: { src: c.imgSrc, alt: c.title, loading: "lazy" }
+          });
+          setCssProps(img, {
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block"
+          });
+        }
+        const box = grid.createDiv({
+          cls: `tl-box callout ${hasMedia ? "has-media" : "no-media"}`
+        });
+        setCssProps(box, {
+          height: `${BH}px`,
+          boxSizing: "border-box",
+          "--tl-bg": cfg.colors.bg || "var(--background-primary)",
+          "--tl-accent": cfg.colors.accent || "var(--background-modifier-border)",
+          "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
+        });
+        const titleEl = box.createEl("h1", {
+          cls: "tl-title",
+          text: c.title
+        });
+        const dateEl = box.createEl("h4", {
+          cls: "tl-date",
+          text: plugin.formatRange(c.start, c.end)
+        });
+        const sum = box.createDiv({ cls: "tl-summary" });
+        titleEl.classList.add("tl-title-colored");
+        dateEl.classList.add("tl-date-colored");
+        if (cfg.colors.title) titleEl.style.color = cfg.colors.title;
+        if (cfg.colors.date) dateEl.style.color = cfg.colors.date;
+        if (c.summary) sum.setText(c.summary);
+        const basesSourcePath = this.controller?.file?.path ?? c.file.path;
+        if (media) {
+          const aImg = media.createEl("a", {
+            cls: "internal-link tl-hover-anchor",
+            href: c.file.path,
+            attr: { "data-href": c.file.path, "aria-label": c.title }
+          });
+          setCssProps(aImg, {
+            position: "absolute",
+            inset: "0",
+            zIndex: "5",
+            display: "block",
+            pointerEvents: "auto"
+          });
+          plugin.attachHoverForAnchor(
+            aImg,
+            media,
+            c.file.path,
+            basesSourcePath
+          );
+        }
+        const aBox = box.createEl("a", {
+          cls: "internal-link tl-hover-anchor",
+          href: c.file.path,
+          attr: { "data-href": c.file.path, "aria-label": c.title }
+        });
+        setCssProps(aBox, {
+          position: "absolute",
+          inset: "0",
+          zIndex: "5",
+          display: "block",
+          pointerEvents: "auto"
+        });
+        plugin.attachHoverForAnchor(
+          aBox,
+          box,
+          c.file.path,
+          basesSourcePath
+        );
+        plugin.applyFixedLineClamp(sum, cfg.maxSummaryLines);
+      }
+      resolveImageFromEntryValue(entry, imageProp, sourcePath) {
+        if (!imageProp) return void 0;
+        const v = entry.getValue?.(imageProp);
+        if (!v || v.isEmpty?.()) return void 0;
+        try {
+          if (typeof v.renderTo === "function") {
+            const tmp = document.createElement("div");
+            try {
+              v.renderTo(tmp, this.app.renderContext ?? this.app);
+            } catch {
+              v.renderTo(tmp);
+            }
+            const img = tmp.querySelector("img");
+            const src = img?.getAttribute("src") ?? void 0;
+            if (src) return src;
+          }
+        } catch {
+        }
+        const s = String(v.toString?.() ?? "").trim();
+        if (!s) return void 0;
+        return plugin.resolveLinkToSrc(s, sourcePath);
+      }
+      valueToYmd(value) {
+        if (!value) return null;
+        if (typeof value.isEmpty === "function" && value.isEmpty()) return null;
+        const y = Number(value.year);
+        const m = Number(value.month);
+        const d = Number(value.day);
+        if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d) && y !== 0 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+          return { y, m, d };
+        }
+        const raw = String(value.toString?.() ?? value).trim();
+        const match = raw.match(/^(\d{1,6})-(\d{1,2})-(\d{1,2})/);
+        if (match) {
+          return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
+        }
+        const asNum = Number(raw);
+        if (Number.isFinite(asNum) && asNum > 0) {
+          const dt = new Date(asNum);
+          if (!Number.isNaN(dt.getTime())) {
+            return { y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate() };
+          }
+        }
+        return null;
+      }
+    }
+    registerBasesView.call(this, BASES_VIEW_TYPE_CROSS, {
+      name: "Timeline (Cross)",
+      icon: "lucide-calendar-days",
+      factory: (controller, containerEl) => new TimelineBasesCrossView(controller, containerEl),
+      options: () => [
+        {
+          type: "text",
+          displayName: "Timeline config name (optional)",
+          key: "timelineConfig",
+          default: ""
+        },
+        {
+          type: "text",
+          displayName: "Start date property",
+          key: "startProperty",
+          default: "note.fc-date"
+        },
+        {
+          type: "text",
+          displayName: "End date property (optional)",
+          key: "endProperty",
+          default: "note.fc-end"
+        },
+        {
+          type: "text",
+          displayName: "Title property",
+          key: "titleProperty",
+          default: "note.tl-title"
+        },
+        {
+          type: "text",
+          displayName: "Summary property",
+          key: "summaryProperty",
+          default: "note.tl-summary"
+        },
+        {
+          type: "text",
+          displayName: "Image property",
+          key: "imageProperty",
+          default: "note.tl-image"
+        }
+      ]
+    });
+  }
+  // ---------- Renderer (timeline-cal) ----------
   async renderTimeline(src, el, ctx) {
     let opts = {};
     try {
@@ -240,11 +551,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       if (!summary) {
         summary = await this.extractFirstParagraph(f);
       }
-      const imgSrc = this.resolveImageSrc(
-        f,
-        fm,
-        ctx.sourcePath ?? f.path
-      );
+      const imgSrc = this.resolveImageSrc(f, fm, ctx.sourcePath ?? f.path);
       cards.push({
         file: f,
         title,
@@ -452,33 +759,30 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     base.months = tl.months ?? (!this.settings.migratedLegacy ? this.settings.monthOverrides[name] : void 0);
     return base;
   }
+  resolveLinkToSrc(link, sourcePath) {
+    if (/^https?:\/\//i.test(link)) return link;
+    const dest = this.app.metadataCache.getFirstLinkpathDest(link, sourcePath);
+    if (dest && dest instanceof import_obsidian.TFile) {
+      return this.app.vault.getResourcePath(dest);
+    }
+    return void 0;
+  }
   resolveImageSrc(file, fm, sourcePath) {
-    const tryResolveLink = (link) => {
-      if (/^https?:\/\//i.test(link)) return link;
-      const dest = this.app.metadataCache.getFirstLinkpathDest(
-        link,
-        sourcePath
-      );
-      if (dest && dest instanceof import_obsidian.TFile) {
-        return this.app.vault.getResourcePath(dest);
-      }
-      return void 0;
-    };
     const fmImage = fm["tl-image"];
     if (typeof fmImage === "string") {
-      const src = tryResolveLink(fmImage);
+      const src = this.resolveLinkToSrc(fmImage, sourcePath);
       if (src) return src;
     }
     const cache = this.app.metadataCache.getFileCache(file);
     for (const e of cache?.embeds ?? []) {
       if (/\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(e.link)) {
-        const src = tryResolveLink(e.link);
+        const src = this.resolveLinkToSrc(e.link, sourcePath);
         if (src) return src;
       }
     }
     for (const l of cache?.links ?? []) {
       if (/\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(l.link)) {
-        const src = tryResolveLink(l.link);
+        const src = this.resolveLinkToSrc(l.link, sourcePath);
         if (src) return src;
       }
     }
@@ -519,9 +823,31 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     return void 0;
   }
   attachHoverForAnchor(anchorEl, hoverParent, filePath, sourcePath) {
+    const makeForcedHoverEvent = (evt) => {
+      if (evt && typeof TouchEvent !== "undefined" && evt instanceof TouchEvent) {
+        return evt;
+      }
+      const m = evt;
+      const clientX = m?.clientX ?? 0;
+      const clientY = m?.clientY ?? 0;
+      const screenX = m?.screenX ?? 0;
+      const screenY = m?.screenY ?? 0;
+      return new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        screenX,
+        screenY,
+        ctrlKey: true,
+        metaKey: true,
+        shiftKey: m?.shiftKey ?? false,
+        altKey: m?.altKey ?? false
+      });
+    };
     const openPopover = (evt) => {
       this.app.workspace.trigger("hover-link", {
-        event: evt ?? new MouseEvent("mouseenter"),
+        event: makeForcedHoverEvent(evt),
         source: "simple-timeline",
         hoverParent,
         targetEl: anchorEl,
@@ -729,7 +1055,7 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
       });
     });
     let monthsText = Array.isArray(cfg.months) && cfg.months.length > 0 ? cfg.months.join(", ") : cfg.months ?? "";
-    new import_obsidian.Setting(contentEl).setName("Custom month names").setDesc("See documentation.").addTextArea((ta) => {
+    new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Comma-separated (,) or YAML list (empty = English months)").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setValue(monthsText);
       ta.onChange((v) => {
@@ -894,6 +1220,17 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
+    new import_obsidian.Setting(containerEl).setName("Bases integration (optional)").setDesc(
+      "Registers a custom Bases view type \u201CTimeline (Cross)\u201D. Requires Obsidian with Bases support. Toggle needs a plugin reload to take effect."
+    ).addToggle(
+      (t) => t.setValue(this.plugin.settings.enableBasesIntegration).onChange(async (v) => {
+        this.plugin.settings.enableBasesIntegration = v;
+        await this.plugin.saveSettings();
+        new import_obsidian.Notice(
+          "Saved. Please reload the plugin (or restart Obsidian) for Bases view registration changes to apply."
+        );
+      })
+    );
     new import_obsidian.Setting(containerEl).setName("Global defaults").setDesc(
       "Used by all timelines that do not define their own values (including default colors)."
     ).addButton(
@@ -922,11 +1259,7 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
       const row = new import_obsidian.Setting(containerEl).setName(key);
       row.addButton(
         (b) => b.setButtonText("Edit").onClick(async () => {
-          const result = await openTimelineWizard(
-            this.app,
-            this.plugin,
-            key
-          );
+          const result = await openTimelineWizard(this.app, this.plugin, key);
           if (result) {
             this.display();
             new import_obsidian.Notice(`Timeline \u201C${result.key}\u201D saved.`);

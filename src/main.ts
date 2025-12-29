@@ -60,6 +60,9 @@ interface SimpleTimelineSettings {
 
   // Migration flag
   migratedLegacy?: boolean;
+
+  // Bases integration (optional)
+  enableBasesIntegration: boolean;
 }
 
 const DEFAULT_SETTINGS: SimpleTimelineSettings = {
@@ -78,7 +81,9 @@ const DEFAULT_SETTINGS: SimpleTimelineSettings = {
 
   monthOverrides: {},
   styleOverrides: {},
-  migratedLegacy: false
+  migratedLegacy: false,
+
+  enableBasesIntegration: false
 };
 
 /* =========================================
@@ -145,6 +150,12 @@ function setCssProps(el: HTMLElement, props: CssProps): void {
 }
 
 /* =========================================
+   Bases integration constants
+   ========================================= */
+
+const BASES_VIEW_TYPE_CROSS = "simple-timeline-cross";
+
+/* =========================================
    Main plugin
    ========================================= */
 
@@ -154,6 +165,9 @@ export default class SimpleTimeline extends Plugin {
   async onload() {
     await this.loadSettings();
     await this.migrateLegacyToTimelineConfigs();
+
+    // Optional Bases integration (register view type only if user enabled it)
+    this.tryRegisterBasesViews();
 
     this.registerMarkdownCodeBlockProcessor("timeline-cal", (src, el, ctx) =>
       this.renderTimeline(src, el, ctx)
@@ -319,7 +333,433 @@ export default class SimpleTimeline extends Plugin {
     return trimmed;
   }
 
-  // ---------- Renderer ----------
+  // ---------- Bases integration ----------
+
+  /**
+   * Registers Bases views if:
+   * - user enabled it in plugin settings
+   * - Obsidian version exposes registerBasesView + BasesView
+   *
+   * Note: we do NOT import BasesView at top-level to avoid hard crashes on older Obsidian versions.
+   */
+  private tryRegisterBasesViews() {
+    if (!this.settings.enableBasesIntegration) return;
+
+    const pluginAny = this as any;
+    const registerBasesView: unknown = pluginAny.registerBasesView;
+    if (typeof registerBasesView !== "function") {
+      console.debug(
+        "simple-timeline: Bases integration enabled, but registerBasesView is not available (Obsidian too old?)."
+      );
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const obsidianAny: any = require("obsidian");
+    const BasesView: any = obsidianAny.BasesView;
+    if (!BasesView) {
+      console.debug(
+        "simple-timeline: Bases integration enabled, but BasesView is not available (Obsidian too old?)."
+      );
+      return;
+    }
+
+    // Keep a stable reference to the plugin instance for closures.
+    const plugin = this;
+
+    class TimelineBasesCrossView extends BasesView {
+      readonly type = BASES_VIEW_TYPE_CROSS;
+
+      private hostEl: HTMLElement;
+
+      constructor(controller: any, parentEl: HTMLElement) {
+        super(controller);
+        this.hostEl = parentEl.createDiv({ cls: "tl-bases-host" });
+
+        setCssProps(this.hostEl, {
+          boxSizing: "border-box",
+          paddingLeft: "var(--file-margins, 24px)",
+          paddingRight: "var(--file-margins, 24px)"
+        });
+      }
+
+      public onDataUpdated(): void {
+        this.hostEl.empty();
+
+        const wrapper = this.hostEl.createDiv({
+          cls: "tl-wrapper tl-cross-mode"
+        });
+
+        // View options
+        const timelineConfigNameRaw = String(
+          this.config.get("timelineConfig") ?? ""
+        ).trim();
+        const timelineConfigName = timelineConfigNameRaw || undefined;
+
+        const startProp = String(
+          this.config.get("startProperty") ?? "note.fc-date"
+        );
+        const endProp = String(this.config.get("endProperty") ?? "note.fc-end");
+        const titleProp = String(
+          this.config.get("titleProperty") ?? "note.tl-title"
+        );
+        const summaryProp = String(
+          this.config.get("summaryProperty") ?? "note.tl-summary"
+        );
+        const imageProp = String(
+          this.config.get("imageProperty") ?? "note.tl-image"
+        );
+
+        const pAny = plugin as any;
+        const cfg = pAny.getConfigFor(timelineConfigName);
+        const months: string[] = pAny.getMonths(timelineConfigName);
+
+        const groups = this.data?.groupedData ?? [];
+        for (const group of groups) {
+          // Optional group header (if groupBy is set in Bases)
+          const keyVal = (group as any).key;
+          const keyText =
+            keyVal && typeof keyVal.toString === "function"
+              ? keyVal.toString()
+              : "";
+          if (keyText && keyText !== "null") {
+            const h = wrapper.createEl("h3", { text: keyText });
+            h.addClass("tl-bases-group-title");
+          }
+
+          const entries = (group as any).entries ?? [];
+          for (const entry of entries) {
+            const file: TFile | undefined = entry?.file;
+            if (!file) continue;
+
+            const startValue = entry.getValue?.(startProp);
+            const start = this.valueToYmd(startValue);
+            if (!start) continue;
+
+            const endValue = endProp ? entry.getValue?.(endProp) : null;
+            const end = this.valueToYmd(endValue) ?? undefined;
+
+            const titleValue = titleProp ? entry.getValue?.(titleProp) : null;
+            const title =
+              titleValue && !titleValue.isEmpty?.()
+                ? String(titleValue.toString())
+                : file.basename;
+
+            let summary: string | undefined;
+            const summaryValue = summaryProp ? entry.getValue?.(summaryProp) : null;
+            if (summaryValue && !summaryValue.isEmpty?.()) {
+              summary = String(summaryValue.toString());
+            }
+
+            const buildRow = async () => {
+              if (!summary) {
+                summary = await pAny.extractFirstParagraph(file);
+              }
+
+              const imgSrc = this.resolveImageFromEntryValue(
+                entry,
+                imageProp,
+                file.path
+              );
+
+              // month names
+              const mNameStart =
+                months[(start.m - 1 + months.length) % months.length] ??
+                String(start.m);
+              const mNameEnd = end
+                ? months[(end.m - 1 + months.length) % months.length] ??
+                  String(end.m)
+                : undefined;
+
+              const card: CardData = {
+                file,
+                title,
+                summary,
+                start: { ...start, mName: mNameStart },
+                end: end ? { ...end, mName: mNameEnd } : undefined,
+                imgSrc,
+                primaryTl: timelineConfigName
+              };
+
+              this.renderCrossRow(wrapper, card, cfg);
+            };
+
+            void buildRow();
+          }
+        }
+      }
+
+      private renderCrossRow(
+        wrapper: HTMLElement,
+        c: CardData,
+        cfg: {
+          maxSummaryLines: number;
+          cardWidth: number;
+          cardHeight: number;
+          boxHeight: number;
+          sideGapLeft: number;
+          sideGapRight: number;
+          colors: {
+            bg?: string;
+            accent?: string;
+            hover?: string;
+            title?: string;
+            date?: string;
+          };
+          months?: string[] | string;
+        }
+      ) {
+        const row = wrapper.createDiv({ cls: "tl-row" }) as HTMLDivElement;
+
+        const W = cfg.cardWidth;
+        const H = cfg.cardHeight;
+        const BH = cfg.boxHeight;
+
+        setCssProps(row, {
+          paddingLeft: `${cfg.sideGapLeft}px`,
+          paddingRight: `${cfg.sideGapRight}px`,
+          "--tl-bg": cfg.colors.bg || "var(--background-primary)",
+          "--tl-accent":
+            cfg.colors.accent || "var(--background-modifier-border)",
+          "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
+        });
+
+        const grid = row.createDiv({ cls: "tl-grid" }) as HTMLDivElement;
+        setCssProps(grid, {
+          display: "grid",
+          alignItems: "center",
+          columnGap: "0"
+        });
+
+        const hasMedia = !!c.imgSrc;
+        setCssProps(grid, {
+          gridTemplateColumns: hasMedia ? `${W}px 1fr` : "1fr"
+        });
+
+        let media: HTMLDivElement | null = null;
+        if (hasMedia && c.imgSrc) {
+          media = grid.createDiv({ cls: "tl-media" }) as HTMLDivElement;
+          setCssProps(media, {
+            width: `${W}px`,
+            height: `${H}px`,
+            position: "relative"
+          });
+
+          const img = media.createEl("img", {
+            attr: { src: c.imgSrc, alt: c.title, loading: "lazy" }
+          }) as HTMLImageElement;
+          setCssProps(img, {
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block"
+          });
+        }
+
+        const box = grid.createDiv({
+          cls: `tl-box callout ${hasMedia ? "has-media" : "no-media"}`
+        }) as HTMLDivElement;
+        setCssProps(box, {
+          height: `${BH}px`,
+          boxSizing: "border-box",
+          "--tl-bg": cfg.colors.bg || "var(--background-primary)",
+          "--tl-accent":
+            cfg.colors.accent || "var(--background-modifier-border)",
+          "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
+        });
+
+        const titleEl = box.createEl("h1", {
+          cls: "tl-title",
+          text: c.title
+        });
+        const dateEl = box.createEl("h4", {
+          cls: "tl-date",
+          text: (plugin as any).formatRange(c.start, c.end)
+        });
+        const sum = box.createDiv({ cls: "tl-summary" });
+
+        titleEl.classList.add("tl-title-colored");
+        dateEl.classList.add("tl-date-colored");
+
+        if (cfg.colors.title) titleEl.style.color = cfg.colors.title;
+        if (cfg.colors.date) dateEl.style.color = cfg.colors.date;
+
+        if (c.summary) sum.setText(c.summary);
+
+        const basesSourcePath: string =
+          ((this as any).controller?.file?.path as string | undefined) ??
+          c.file.path;
+
+        // Popover / click area only on image & box
+        if (media) {
+          const aImg = media.createEl("a", {
+            cls: "internal-link tl-hover-anchor",
+            href: c.file.path,
+            attr: { "data-href": c.file.path, "aria-label": c.title }
+          });
+
+          // Ensure pointer events even if Bases container CSS is special
+          setCssProps(aImg, {
+            position: "absolute",
+            inset: "0",
+            zIndex: "5",
+            display: "block",
+            pointerEvents: "auto"
+          });
+
+          (plugin as any).attachHoverForAnchor(
+            aImg,
+            media,
+            c.file.path,
+            basesSourcePath
+          );
+        }
+
+        const aBox = box.createEl("a", {
+          cls: "internal-link tl-hover-anchor",
+          href: c.file.path,
+          attr: { "data-href": c.file.path, "aria-label": c.title }
+        });
+
+        setCssProps(aBox, {
+          position: "absolute",
+          inset: "0",
+          zIndex: "5",
+          display: "block",
+          pointerEvents: "auto"
+        });
+
+        (plugin as any).attachHoverForAnchor(
+          aBox,
+          box,
+          c.file.path,
+          basesSourcePath
+        );
+
+        (plugin as any).applyFixedLineClamp(sum, cfg.maxSummaryLines);
+      }
+
+      private resolveImageFromEntryValue(
+        entry: any,
+        imageProp: string,
+        sourcePath: string
+      ): string | undefined {
+        if (!imageProp) return undefined;
+
+        const v = entry.getValue?.(imageProp);
+        if (!v || v.isEmpty?.()) return undefined;
+
+        try {
+          if (typeof v.renderTo === "function") {
+            const tmp = document.createElement("div");
+            try {
+              v.renderTo(tmp, (this.app as any).renderContext ?? this.app);
+            } catch {
+              v.renderTo(tmp);
+            }
+            const img = tmp.querySelector("img");
+            const src = img?.getAttribute("src") ?? undefined;
+            if (src) return src;
+          }
+        } catch {
+          // ignore and fall back
+        }
+
+        const s = String(v.toString?.() ?? "").trim();
+        if (!s) return undefined;
+
+        return (plugin as any).resolveLinkToSrc(s, sourcePath);
+      }
+
+      private valueToYmd(value: any): { y: number; m: number; d: number } | null {
+        if (!value) return null;
+        if (typeof value.isEmpty === "function" && value.isEmpty()) return null;
+
+        // 1) Direct fields (best case)
+        const y = Number((value as any).year);
+        const m = Number((value as any).month);
+        const d = Number((value as any).day);
+        if (
+          Number.isFinite(y) &&
+          Number.isFinite(m) &&
+          Number.isFinite(d) &&
+          y !== 0 &&
+          m >= 1 &&
+          m <= 12 &&
+          d >= 1 &&
+          d <= 31
+        ) {
+          return { y, m, d };
+        }
+
+        // 2) String parse (YYYY-MM-DD...)
+        const raw = String(value.toString?.() ?? value).trim();
+        const match = raw.match(/^(\d{1,6})-(\d{1,2})-(\d{1,2})/);
+        if (match) {
+          return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
+        }
+
+        // 3) Numeric epoch (ms)
+        const asNum = Number(raw);
+        if (Number.isFinite(asNum) && asNum > 0) {
+          const dt = new Date(asNum);
+          if (!Number.isNaN(dt.getTime())) {
+            return { y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate() };
+          }
+        }
+
+        return null;
+      }
+    }
+
+    // Register the Bases view type
+    (registerBasesView as any).call(this, BASES_VIEW_TYPE_CROSS, {
+      name: "Timeline (Cross)",
+      icon: "lucide-calendar-days",
+      factory: (controller: any, containerEl: HTMLElement) =>
+        new TimelineBasesCrossView(controller, containerEl),
+      options: () => [
+        {
+          type: "text",
+          displayName: "Timeline config name (optional)",
+          key: "timelineConfig",
+          default: ""
+        },
+        {
+          type: "text",
+          displayName: "Start date property",
+          key: "startProperty",
+          default: "note.fc-date"
+        },
+        {
+          type: "text",
+          displayName: "End date property (optional)",
+          key: "endProperty",
+          default: "note.fc-end"
+        },
+        {
+          type: "text",
+          displayName: "Title property",
+          key: "titleProperty",
+          default: "note.tl-title"
+        },
+        {
+          type: "text",
+          displayName: "Summary property",
+          key: "summaryProperty",
+          default: "note.tl-summary"
+        },
+        {
+          type: "text",
+          displayName: "Image property",
+          key: "imageProperty",
+          default: "note.tl-image"
+        }
+      ]
+    });
+  }
+
+  // ---------- Renderer (timeline-cal) ----------
 
   private async renderTimeline(
     src: string,
@@ -343,8 +783,8 @@ export default class SimpleTimeline extends Plugin {
             .map((s) => s.trim())
             .filter(Boolean)
         : Array.isArray(namesValue)
-        ? namesValue.map((s) => String(s).trim()).filter(Boolean)
-        : [];
+          ? namesValue.map((s) => String(s).trim()).filter(Boolean)
+          : [];
 
     const filterNames = namesRaw.length ? namesRaw : [];
 
@@ -362,10 +802,7 @@ export default class SimpleTimeline extends Plugin {
         ? timelinesVal.map((s) => String(s))
         : [];
 
-      if (
-        filterNames.length &&
-        !tlList.some((t) => filterNames.includes(t))
-      ) {
+      if (filterNames.length && !tlList.some((t) => filterNames.includes(t))) {
         continue;
       }
 
@@ -381,11 +818,9 @@ export default class SimpleTimeline extends Plugin {
 
       const months = this.getMonths(primaryTl);
       const mNameStart =
-        months[(start.m - 1 + months.length) % months.length] ??
-        String(start.m);
+        months[(start.m - 1 + months.length) % months.length] ?? String(start.m);
       const mNameEnd = end
-        ? months[(end.m - 1 + months.length) % months.length] ??
-          String(end.m)
+        ? months[(end.m - 1 + months.length) % months.length] ?? String(end.m)
         : undefined;
 
       const title = String(fm["tl-title"] ?? f.basename);
@@ -412,11 +847,7 @@ export default class SimpleTimeline extends Plugin {
         summary = await this.extractFirstParagraph(f);
       }
 
-      const imgSrc = this.resolveImageSrc(
-        f,
-        fm,
-        ctx.sourcePath ?? f.path
-      );
+      const imgSrc = this.resolveImageSrc(f, fm, ctx.sourcePath ?? f.path);
 
       cards.push({
         file: f,
@@ -455,8 +886,7 @@ export default class SimpleTimeline extends Plugin {
         paddingLeft: `${cfg.sideGapLeft}px`,
         paddingRight: `${cfg.sideGapRight}px`,
         "--tl-bg": cfg.colors.bg || "var(--background-primary)",
-        "--tl-accent":
-          cfg.colors.accent || "var(--background-modifier-border)",
+        "--tl-accent": cfg.colors.accent || "var(--background-modifier-border)",
         "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
       });
 
@@ -499,8 +929,7 @@ export default class SimpleTimeline extends Plugin {
         height: `${BH}px`,
         boxSizing: "border-box",
         "--tl-bg": cfg.colors.bg || "var(--background-primary)",
-        "--tl-accent":
-          cfg.colors.accent || "var(--background-modifier-border)",
+        "--tl-accent": cfg.colors.accent || "var(--background-modifier-border)",
         "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
       });
 
@@ -514,11 +943,9 @@ export default class SimpleTimeline extends Plugin {
       });
       const sum = box.createDiv({ cls: "tl-summary" });
 
-      // Klassen hinzufügen, damit die ::after‑Balken aktiv werden
       titleEl.classList.add("tl-title-colored");
       dateEl.classList.add("tl-date-colored");
 
-      // Optional: Farbe überschreiben, falls in den Settings gesetzt
       if (cfg.colors.title) {
         titleEl.style.color = cfg.colors.title;
       }
@@ -713,26 +1140,23 @@ export default class SimpleTimeline extends Plugin {
     return base;
   }
 
+  private resolveLinkToSrc(link: string, sourcePath: string): string | undefined {
+    if (/^https?:\/\//i.test(link)) return link;
+    const dest = this.app.metadataCache.getFirstLinkpathDest(link, sourcePath);
+    if (dest && dest instanceof TFile) {
+      return this.app.vault.getResourcePath(dest);
+    }
+    return undefined;
+  }
+
   private resolveImageSrc(
     file: TFile,
     fm: FrontmatterLike,
     sourcePath: string
   ): string | undefined {
-    const tryResolveLink = (link: string): string | undefined => {
-      if (/^https?:\/\//i.test(link)) return link;
-      const dest = this.app.metadataCache.getFirstLinkpathDest(
-        link,
-        sourcePath
-      );
-      if (dest && dest instanceof TFile) {
-        return this.app.vault.getResourcePath(dest);
-      }
-      return undefined;
-    };
-
     const fmImage = fm["tl-image"];
     if (typeof fmImage === "string") {
-      const src = tryResolveLink(fmImage);
+      const src = this.resolveLinkToSrc(fmImage, sourcePath);
       if (src) return src;
     }
 
@@ -740,13 +1164,13 @@ export default class SimpleTimeline extends Plugin {
 
     for (const e of cache?.embeds ?? []) {
       if (/\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(e.link)) {
-        const src = tryResolveLink(e.link);
+        const src = this.resolveLinkToSrc(e.link, sourcePath);
         if (src) return src;
       }
     }
     for (const l of cache?.links ?? []) {
       if (/\.(png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(l.link)) {
-        const src = tryResolveLink(l.link);
+        const src = this.resolveLinkToSrc(l.link, sourcePath);
         if (src) return src;
       }
     }
@@ -801,6 +1225,36 @@ export default class SimpleTimeline extends Plugin {
     filePath: string,
     sourcePath: string
   ) {
+    const makeForcedHoverEvent = (
+      evt?: MouseEvent | TouchEvent
+    ): MouseEvent | TouchEvent => {
+      // Touch: keep original (no ctrl concept)
+      if (evt && typeof TouchEvent !== "undefined" && evt instanceof TouchEvent) {
+        return evt;
+      }
+
+      const m = evt as MouseEvent | undefined;
+      const clientX = m?.clientX ?? 0;
+      const clientY = m?.clientY ?? 0;
+      const screenX = m?.screenX ?? 0;
+      const screenY = m?.screenY ?? 0;
+
+      // Force modifier keys "true" to avoid any "require Ctrl/Cmd" gating
+      // in different containers (Bases / Reading view).
+      return new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        screenX,
+        screenY,
+        ctrlKey: true,
+        metaKey: true,
+        shiftKey: m?.shiftKey ?? false,
+        altKey: m?.altKey ?? false
+      });
+    };
+
     const openPopover = (evt?: MouseEvent | TouchEvent) => {
       (this.app.workspace as unknown as {
         trigger: (
@@ -815,7 +1269,7 @@ export default class SimpleTimeline extends Plugin {
           }
         ) => void;
       }).trigger("hover-link", {
-        event: evt ?? new MouseEvent("mouseenter"),
+        event: makeForcedHoverEvent(evt),
         source: "simple-timeline",
         hoverParent,
         targetEl: anchorEl,
@@ -825,8 +1279,9 @@ export default class SimpleTimeline extends Plugin {
     };
 
     anchorEl.addEventListener("mouseenter", (e) =>
-      openPopover(e)
+      openPopover(e as MouseEvent)
     );
+
     let t: number | null = null;
     anchorEl.addEventListener(
       "touchstart",
@@ -835,6 +1290,7 @@ export default class SimpleTimeline extends Plugin {
       },
       { passive: true }
     );
+
     const clear = () => {
       if (t) {
         window.clearTimeout(t);
@@ -1019,11 +1475,7 @@ class TimelineConfigModal extends Modal {
     let key = this.initialKey ?? "";
     const cfg: TimelineConfig = this.initialCfg ?? {};
 
-    const addNum = (
-      name: string,
-      prop: TimelineNumericKey,
-      ph: string
-    ) =>
+    const addNum = (name: string, prop: TimelineNumericKey, ph: string) =>
       new Setting(contentEl)
         .setName(name)
         .setDesc("Empty = use defaults")
@@ -1116,8 +1568,8 @@ class TimelineConfigModal extends Modal {
         : (cfg.months as string | undefined) ?? "";
 
     new Setting(contentEl)
-      .setName("Custom month names")
-      .setDesc("See documentation.")
+      .setName("Month names")
+      .setDesc("Comma-separated (,) or YAML list (empty = English months)")
       .addTextArea((ta) => {
         ta.inputEl.rows = 3;
         ta.setValue(monthsText);
@@ -1358,6 +1810,22 @@ class SimpleTimelineSettingsTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    new Setting(containerEl)
+      .setName("Bases integration (optional)")
+      .setDesc(
+        "Registers a custom Bases view type “Timeline (Cross)”. Requires Obsidian with Bases support. Toggle needs a plugin reload to take effect."
+      )
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.enableBasesIntegration)
+          .onChange(async (v) => {
+            this.plugin.settings.enableBasesIntegration = v;
+            await this.plugin.saveSettings();
+            new Notice(
+              "Saved. Please reload the plugin (or restart Obsidian) for Bases view registration changes to apply."
+            );
+          })
+      );
 
     new Setting(containerEl)
       .setName("Global defaults")
@@ -1388,18 +1856,14 @@ class SimpleTimelineSettingsTab extends PluginSettingTab {
         })
       );
 
-    const keys = Object.keys(this.plugin.settings.timelineConfigs).sort(
-      (a, b) => a.localeCompare(b)
+    const keys = Object.keys(this.plugin.settings.timelineConfigs).sort((a, b) =>
+      a.localeCompare(b)
     );
     for (const key of keys) {
       const row = new Setting(containerEl).setName(key);
       row.addButton((b) =>
         b.setButtonText("Edit").onClick(async () => {
-          const result = await openTimelineWizard(
-            this.app,
-            this.plugin,
-            key
-          );
+          const result = await openTimelineWizard(this.app, this.plugin, key);
           if (result) {
             this.display();
             new Notice(`Timeline “${result.key}” saved.`);
