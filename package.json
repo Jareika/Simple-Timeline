@@ -1,12 +1,14 @@
 {
   "name": "obsidian-simple-timeline",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "license": "MIT",
   "private": true,
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --watch",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --ext .ts,.mts --max-warnings 0",
+    "lint:fix": "eslint . --ext .ts,.mts --fix"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",

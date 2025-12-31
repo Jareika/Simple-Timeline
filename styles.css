@@ -15,17 +15,32 @@
   row-gap: 0;
 }
 
-/* Image */
+/* Grid layout:
+   We keep DOM order (media first, then box) so the adjacency hover selector
+   still works. We only swap the visual placement via grid areas. */
+.tl-grid.has-media {
+  grid-template-columns: var(--tl-media-w, 200px) 1fr;
+  grid-template-areas: "media box";
+}
+
+.tl-row.tl-align-right .tl-grid.has-media {
+  grid-template-columns: 1fr var(--tl-media-w, 200px);
+  grid-template-areas: "box media";
+}
+
+.tl-grid.no-media {
+  grid-template-columns: 1fr;
+  grid-template-areas: "box";
+}
+
+/* Assign areas */
 .tl-media {
-  position: relative;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--background-modifier-border);
-  z-index: 2; /* in doubt, sit above the box when they overlap slightly */
+  grid-area: media;
 }
 
 /* Card / callout‑like box */
 .tl-box.callout {
+  grid-area: box;
   position: relative;
   box-sizing: border-box;
   padding: 10px 12px;
@@ -43,10 +58,27 @@
     box-shadow .15s ease;
 }
 
-.tl-box.callout.has-media {
+/* Image */
+.tl-media {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--background-modifier-border);
+  z-index: 2; /* in doubt, sit above the box when they overlap slightly */
+}
+
+/* Default: image left -> box is on the right, so we cut the LEFT edge */
+.tl-row:not(.tl-align-right) .tl-box.callout.has-media {
   border-left: none;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+}
+
+/* Image right -> box is on the left, so we cut the RIGHT edge */
+.tl-row.tl-align-right .tl-box.callout.has-media {
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .tl-box.callout.no-media {
@@ -57,7 +89,6 @@
 .tl-box .tl-date {
   margin: 0 0 6px;
 }
-
 
 /* Grundstil für Timeline-Heading, entkoppelt vom Theme */
 .tl-box .tl-title.tl-title-colored,
@@ -173,8 +204,18 @@
     row-gap: 0;
   }
 
-  /* Image on top: visually part of the same “card”.
-     Slight negative margin to eat any remaining gap from theme styles. */
+  /* IMPORTANT: override desktop grid-areas for single-column layout */
+  .tl-grid.has-media {
+    grid-template-areas:
+      "media"
+      "box" !important;
+  }
+
+  .tl-grid.no-media {
+    grid-template-areas: "box" !important;
+  }
+
+  /* Image on top: visually part of the same “card”. */
   .tl-media {
     width: 100% !important;
     max-width: 560px;
@@ -199,12 +240,21 @@
     max-width: 560px;
   }
 
+  /* Mobile: stacked -> box always below image. Alignment doesn't matter here. */
   .tl-box.callout.has-media {
     height: auto !important;
     border-radius: 0 0 10px 10px;
     border: 1px solid var(--tl-accent, var(--background-modifier-border));
     border-top: none; /* no double border directly under the image */
     margin-top: 0;
+  }
+
+  /* Override desktop cut-edges for both alignments */
+  .tl-row.tl-align-right .tl-box.callout.has-media,
+  .tl-row:not(.tl-align-right) .tl-box.callout.has-media {
+    border: 1px solid var(--tl-accent, var(--background-modifier-border));
+    border-top: none;
+    border-radius: 0 0 10px 10px;
   }
 
   /* Without image: card stands on its own, full width, auto height */

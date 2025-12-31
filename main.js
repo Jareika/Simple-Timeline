@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -15,6 +17,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -23,6 +33,7 @@ __export(main_exports, {
   default: () => SimpleTimeline
 });
 module.exports = __toCommonJS(main_exports);
+var ObsidianNS = __toESM(require("obsidian"));
 var import_obsidian = require("obsidian");
 var DEFAULT_SETTINGS = {
   dateFormat: "D MMMM YYYY",
@@ -48,6 +59,27 @@ function setCssProps(el, props) {
       style[name] = value;
     }
   }
+}
+function isRecord(v) {
+  return typeof v === "object" && v !== null;
+}
+function isFunction(v) {
+  return typeof v === "function";
+}
+function primitiveToString(v) {
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  if (typeof v === "boolean") return String(v);
+  return void 0;
+}
+function toCommaListString(v) {
+  const prim = primitiveToString(v);
+  if (prim != null) return prim;
+  if (Array.isArray(v)) {
+    const parts = v.map((x) => primitiveToString(x)).filter((x) => typeof x === "string" && x.length > 0);
+    if (parts.length) return parts.join(", ");
+  }
+  return void 0;
 }
 var BASES_VIEW_TYPE_CROSS = "simple-timeline-cross";
 var SimpleTimeline = class extends import_obsidian.Plugin {
@@ -113,6 +145,15 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
   }
   onunload() {
   }
+  // ---------- Frontmatter helpers (avoid unsafe any) ----------
+  getFrontmatter(file) {
+    const cache = this.app.metadataCache.getFileCache(file);
+    const fm = cache?.frontmatter;
+    return isRecord(fm) ? fm : void 0;
+  }
+  getFrontmatterValue(file, key) {
+    return this.getFrontmatter(file)?.[key];
+  }
   // ---------- UI commands ----------
   getActiveFile() {
     const f = this.app.workspace.getActiveFile();
@@ -145,10 +186,11 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     );
   }
   async promptEditTimelines(file) {
-    const cur = this.app.metadataCache.getFileCache(file)?.frontmatter?.["timelines"];
+    const curVal = this.getFrontmatterValue(file, "timelines");
+    const curStr = toCommaListString(curVal) ?? "";
     const val = await promptModal(this.app, {
       title: "Timelines (comma-separated)",
-      value: cur ? String(cur) : "",
+      value: curStr,
       placeholder: "Travel, Expedition, Notes"
     });
     if (val == null) return;
@@ -161,10 +203,11 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     );
   }
   async promptSetSummary(file) {
-    const cur = this.app.metadataCache.getFileCache(file)?.frontmatter?.["tl-summary"] ?? "";
+    const curVal = this.getFrontmatterValue(file, "tl-summary");
+    const curStr = primitiveToString(curVal) ?? "";
     const val = await promptModal(this.app, {
       title: "Short summary",
-      value: String(cur),
+      value: curStr,
       placeholder: "Multi-line allowed (YAML | or |- in frontmatter)"
     });
     if (val == null) return;
@@ -200,33 +243,33 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
   /**
    * Registers Bases views if:
    * - user enabled it in plugin settings
-   * - Obsidian version exposes registerBasesView + BasesView
+   * - Obsidian version exposes registerBasesView + BasesView at runtime
    *
-   * Note: we do NOT import BasesView at top-level to avoid hard crashes on older Obsidian versions.
+   * Important: we keep this implementation "soft" so the plugin does not crash
+   * on older Obsidian builds that do not include Bases.
    */
   tryRegisterBasesViews() {
     if (!this.settings.enableBasesIntegration) return;
-    const pluginAny = this;
-    const registerBasesView = pluginAny.registerBasesView;
-    if (typeof registerBasesView !== "function") {
+    const maybeRegister = this.registerBasesView;
+    if (!isFunction(maybeRegister)) {
       console.debug(
         "simple-timeline: Bases integration enabled, but registerBasesView is not available (Obsidian too old?)."
       );
       return;
     }
-    const obsidianAny = require("obsidian");
-    const BasesView = obsidianAny.BasesView;
-    if (!BasesView) {
+    const maybeBasesView = ObsidianNS["BasesView"];
+    if (!isFunction(maybeBasesView)) {
       console.debug(
         "simple-timeline: Bases integration enabled, but BasesView is not available (Obsidian too old?)."
       );
       return;
     }
-    const plugin = this;
-    class TimelineBasesCrossView extends BasesView {
-      constructor(controller, parentEl) {
+    const BasesViewCtor = maybeBasesView;
+    class TimelineBasesCrossView extends BasesViewCtor {
+      constructor(controller, parentEl, plugin) {
         super(controller);
         this.type = BASES_VIEW_TYPE_CROSS;
+        this.plugin = plugin;
         this.hostEl = parentEl.createDiv({ cls: "tl-bases-host" });
         setCssProps(this.hostEl, {
           boxSizing: "border-box",
@@ -234,43 +277,42 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
           paddingRight: "var(--file-margins, 24px)"
         });
       }
+      getOptionString(key, fallback) {
+        const v = this.config.get(key);
+        return typeof v === "string" ? v : fallback;
+      }
+      getGroupKeyText(v) {
+        return primitiveToString(v) ?? "";
+      }
       onDataUpdated() {
         this.hostEl.empty();
         const wrapper = this.hostEl.createDiv({
           cls: "tl-wrapper tl-cross-mode"
         });
-        const timelineConfigNameRaw = String(
-          this.config.get("timelineConfig") ?? ""
-        ).trim();
+        const timelineConfigNameRaw = this.getOptionString("timelineConfig", "").trim();
         const timelineConfigName = timelineConfigNameRaw || void 0;
-        const startProp = String(
-          this.config.get("startProperty") ?? "note.fc-date"
+        const startProp = this.getOptionString("startProperty", "note.fc-date");
+        const endProp = this.getOptionString("endProperty", "note.fc-end");
+        const titleProp = this.getOptionString("titleProperty", "note.tl-title");
+        const summaryProp = this.getOptionString(
+          "summaryProperty",
+          "note.tl-summary"
         );
-        const endProp = String(this.config.get("endProperty") ?? "note.fc-end");
-        const titleProp = String(
-          this.config.get("titleProperty") ?? "note.tl-title"
-        );
-        const summaryProp = String(
-          this.config.get("summaryProperty") ?? "note.tl-summary"
-        );
-        const imageProp = String(
-          this.config.get("imageProperty") ?? "note.tl-image"
-        );
-        const pAny = plugin;
-        const cfg = pAny.getConfigFor(timelineConfigName);
-        const months = pAny.getMonths(timelineConfigName);
+        const imageProp = this.getOptionString("imageProperty", "note.tl-image");
+        const cfg = this.plugin.getConfigFor(timelineConfigName);
+        const months = this.plugin.getMonths(timelineConfigName);
         const groups = this.data?.groupedData ?? [];
         for (const group of groups) {
-          const keyVal = group.key;
-          const keyText = keyVal && typeof keyVal.toString === "function" ? keyVal.toString() : "";
+          const keyText = this.getGroupKeyText(group.key);
           if (keyText && keyText !== "null") {
             const h = wrapper.createEl("h3", { text: keyText });
             h.addClass("tl-bases-group-title");
           }
           const entries = group.entries ?? [];
           for (const entry of entries) {
-            const file = entry?.file;
-            if (!file) continue;
+            const maybeFile = entry.file;
+            if (!(maybeFile instanceof import_obsidian.TFile)) continue;
+            const file = maybeFile;
             const startValue = entry.getValue?.(startProp);
             const start = this.valueToYmd(startValue);
             if (!start) continue;
@@ -285,7 +327,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
             }
             const buildRow = async () => {
               if (!summary) {
-                summary = await pAny.extractFirstParagraph(file);
+                summary = await this.plugin.extractFirstParagraph(file);
               }
               const imgSrc = this.resolveImageFromEntryValue(
                 entry,
@@ -309,8 +351,21 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
           }
         }
       }
+      getControllerFilePath() {
+        const c = this.controller;
+        if (!c || !isRecord(c)) return void 0;
+        const maybeFile = c["file"];
+        if (maybeFile instanceof import_obsidian.TFile) return maybeFile.path;
+        if (isRecord(maybeFile)) {
+          const p = maybeFile["path"];
+          if (typeof p === "string") return p;
+        }
+        return void 0;
+      }
       renderCrossRow(wrapper, c, cfg) {
         const row = wrapper.createDiv({ cls: "tl-row" });
+        const align = cfg.align ?? "left";
+        if (align === "right") row.addClass("tl-align-right");
         const W = cfg.cardWidth;
         const H = cfg.cardHeight;
         const BH = cfg.boxHeight;
@@ -322,14 +377,13 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
           "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
         });
         const grid = row.createDiv({ cls: "tl-grid" });
+        const hasMedia = !!c.imgSrc;
+        grid.addClass(hasMedia ? "has-media" : "no-media");
         setCssProps(grid, {
           display: "grid",
           alignItems: "center",
-          columnGap: "0"
-        });
-        const hasMedia = !!c.imgSrc;
-        setCssProps(grid, {
-          gridTemplateColumns: hasMedia ? `${W}px 1fr` : "1fr"
+          columnGap: "0",
+          "--tl-media-w": `${W}px`
         });
         let media = null;
         if (hasMedia && c.imgSrc) {
@@ -365,7 +419,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         });
         const dateEl = box.createEl("h4", {
           cls: "tl-date",
-          text: plugin.formatRange(c.start, c.end)
+          text: this.plugin.formatRange(c.start, c.end)
         });
         const sum = box.createDiv({ cls: "tl-summary" });
         titleEl.classList.add("tl-title-colored");
@@ -373,7 +427,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         if (cfg.colors.title) titleEl.style.color = cfg.colors.title;
         if (cfg.colors.date) dateEl.style.color = cfg.colors.date;
         if (c.summary) sum.setText(c.summary);
-        const basesSourcePath = this.controller?.file?.path ?? c.file.path;
+        const basesSourcePath = this.getControllerFilePath() ?? c.file.path;
         if (media) {
           const aImg = media.createEl("a", {
             cls: "internal-link tl-hover-anchor",
@@ -387,7 +441,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
             display: "block",
             pointerEvents: "auto"
           });
-          plugin.attachHoverForAnchor(
+          this.plugin.attachHoverForAnchor(
             aImg,
             media,
             c.file.path,
@@ -406,13 +460,8 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
           display: "block",
           pointerEvents: "auto"
         });
-        plugin.attachHoverForAnchor(
-          aBox,
-          box,
-          c.file.path,
-          basesSourcePath
-        );
-        plugin.applyFixedLineClamp(sum, cfg.maxSummaryLines);
+        this.plugin.attachHoverForAnchor(aBox, box, c.file.path, basesSourcePath);
+        this.plugin.applyFixedLineClamp(sum, cfg.maxSummaryLines);
       }
       resolveImageFromEntryValue(entry, imageProp, sourcePath) {
         if (!imageProp) return void 0;
@@ -422,7 +471,8 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
           if (typeof v.renderTo === "function") {
             const tmp = document.createElement("div");
             try {
-              v.renderTo(tmp, this.app.renderContext ?? this.app);
+              const renderContext = this.app.renderContext;
+              v.renderTo(tmp, renderContext ?? this.app);
             } catch {
               v.renderTo(tmp);
             }
@@ -434,21 +484,28 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         }
         const s = String(v.toString?.() ?? "").trim();
         if (!s) return void 0;
-        return plugin.resolveLinkToSrc(s, sourcePath);
+        return this.plugin.resolveLinkToSrc(s, sourcePath);
       }
       valueToYmd(value) {
         if (!value) return null;
         if (typeof value.isEmpty === "function" && value.isEmpty()) return null;
-        const y = Number(value.year);
-        const m = Number(value.month);
-        const d = Number(value.day);
+        const yRaw = value.year;
+        const mRaw = value.month;
+        const dRaw = value.day;
+        const y = Number(yRaw);
+        const m = Number(mRaw);
+        const d = Number(dRaw);
         if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d) && y !== 0 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
           return { y, m, d };
         }
         const raw = String(value.toString?.() ?? value).trim();
         const match = raw.match(/^(\d{1,6})-(\d{1,2})-(\d{1,2})/);
         if (match) {
-          return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
+          return {
+            y: Number(match[1]),
+            m: Number(match[2]),
+            d: Number(match[3])
+          };
         }
         const asNum = Number(raw);
         if (Number.isFinite(asNum) && asNum > 0) {
@@ -460,10 +517,11 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         return null;
       }
     }
+    const registerBasesView = maybeRegister;
     registerBasesView.call(this, BASES_VIEW_TYPE_CROSS, {
       name: "Timeline (Cross)",
       icon: "lucide-calendar-days",
-      factory: (controller, containerEl) => new TimelineBasesCrossView(controller, containerEl),
+      factory: (controller, containerEl) => new TimelineBasesCrossView(controller, containerEl, this),
       options: () => [
         {
           type: "text",
@@ -518,8 +576,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     const files = this.app.vault.getMarkdownFiles();
     const cards = [];
     for (const f of files) {
-      const cache = this.app.metadataCache.getFileCache(f);
-      const fm = cache?.frontmatter;
+      const fm = this.getFrontmatter(f);
       if (!fm) continue;
       if (!Object.prototype.hasOwnProperty.call(fm, "fc-date")) continue;
       const timelinesVal = fm["timelines"];
@@ -534,7 +591,8 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       const months = this.getMonths(primaryTl);
       const mNameStart = months[(start.m - 1 + months.length) % months.length] ?? String(start.m);
       const mNameEnd = end ? months[(end.m - 1 + months.length) % months.length] ?? String(end.m) : void 0;
-      const title = String(fm["tl-title"] ?? f.basename);
+      const tlTitleVal = fm["tl-title"];
+      const title = primitiveToString(tlTitleVal) ?? f.basename;
       const rawSummary = fm["tl-summary"];
       let summary;
       if (typeof rawSummary === "string") {
@@ -569,6 +627,8 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     for (const c of cards) {
       const row = wrapper.createDiv({ cls: "tl-row" });
       const cfg = this.getConfigFor(c.primaryTl);
+      const align = cfg.align ?? "left";
+      if (align === "right") row.addClass("tl-align-right");
       const W = cfg.cardWidth;
       const H = cfg.cardHeight;
       const BH = cfg.boxHeight;
@@ -580,14 +640,13 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         "--tl-hover": cfg.colors.hover || "var(--interactive-accent)"
       });
       const grid = row.createDiv({ cls: "tl-grid" });
+      const hasMedia = !!c.imgSrc;
+      grid.addClass(hasMedia ? "has-media" : "no-media");
       setCssProps(grid, {
         display: "grid",
         alignItems: "center",
-        columnGap: "0"
-      });
-      const hasMedia = !!c.imgSrc;
-      setCssProps(grid, {
-        gridTemplateColumns: hasMedia ? `${W}px 1fr` : "1fr"
+        columnGap: "0",
+        "--tl-media-w": `${W}px`
       });
       let media = null;
       if (hasMedia && c.imgSrc) {
@@ -654,7 +713,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       this.applyFixedLineClamp(sum, cfg.maxSummaryLines);
     }
   }
-  // Line clamp helper
+  // Line clamp helper (made public for Bases view integration)
   applyFixedLineClamp(summaryEl, lines) {
     const n = Math.max(1, Math.floor(lines || this.settings.maxSummaryLines));
     summaryEl.classList.add("tl-clamp");
@@ -663,6 +722,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       "--tl-summary-lh": "1.4"
     });
   }
+  // made public for Bases view integration
   formatRange(a, b) {
     const f = (x) => `${x.d} ${x.mName ?? x.m} ${x.y}`;
     if (!b) return f(a);
@@ -692,6 +752,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     }
     return { y, m: mNum, d };
   }
+  // made public for Bases view integration
   getMonths(calKey) {
     if (calKey) {
       const tl = this.settings.timelineConfigs[calKey];
@@ -722,6 +783,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       "December"
     ];
   }
+  // made public for Bases view integration
   getConfigFor(name) {
     const base = {
       maxSummaryLines: this.settings.maxSummaryLines,
@@ -730,6 +792,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       boxHeight: this.settings.boxHeight,
       sideGapLeft: this.settings.sideGapLeft,
       sideGapRight: this.settings.sideGapRight,
+      align: "left",
       colors: {
         ...this.settings.defaultColors || {}
       },
@@ -743,6 +806,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     base.boxHeight = tl.boxHeight ?? base.boxHeight;
     base.sideGapLeft = tl.sideGapLeft ?? base.sideGapLeft;
     base.sideGapRight = tl.sideGapRight ?? base.sideGapRight;
+    base.align = tl.align ?? base.align;
     base.colors = { ...base.colors, ...tl.colors || {} };
     if (!this.settings.migratedLegacy) {
       const legacy = this.settings.styleOverrides[name];
@@ -759,6 +823,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     base.months = tl.months ?? (!this.settings.migratedLegacy ? this.settings.monthOverrides[name] : void 0);
     return base;
   }
+  // made public for Bases view integration
   resolveLinkToSrc(link, sourcePath) {
     if (/^https?:\/\//i.test(link)) return link;
     const dest = this.app.metadataCache.getFirstLinkpathDest(link, sourcePath);
@@ -822,12 +887,13 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
     }
     return void 0;
   }
+  // made public for Bases view integration
   attachHoverForAnchor(anchorEl, hoverParent, filePath, sourcePath) {
     const makeForcedHoverEvent = (evt) => {
       if (evt && typeof TouchEvent !== "undefined" && evt instanceof TouchEvent) {
         return evt;
       }
-      const m = evt;
+      const m = evt && evt instanceof MouseEvent ? evt : void 0;
       const clientX = m?.clientX ?? 0;
       const clientY = m?.clientY ?? 0;
       const screenX = m?.screenX ?? 0;
@@ -846,7 +912,8 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       });
     };
     const openPopover = (evt) => {
-      this.app.workspace.trigger("hover-link", {
+      const ws = this.app.workspace;
+      ws.trigger("hover-link", {
         event: makeForcedHoverEvent(evt),
         source: "simple-timeline",
         hoverParent,
@@ -855,10 +922,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
         sourcePath
       });
     };
-    anchorEl.addEventListener(
-      "mouseenter",
-      (e) => openPopover(e)
-    );
+    anchorEl.addEventListener("mouseenter", (e) => openPopover(e));
     let t = null;
     anchorEl.addEventListener(
       "touchstart",
@@ -877,6 +941,7 @@ var SimpleTimeline = class extends import_obsidian.Plugin {
       (ev) => anchorEl.addEventListener(ev, clear, { passive: true })
     );
   }
+  // made public for Bases view integration
   async extractFirstParagraph(file) {
     try {
       const raw = await this.app.vault.read(file);
@@ -1017,6 +1082,19 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
         key = v.trim();
       })
     );
+    new import_obsidian.Setting(contentEl).setName("Alignment").setDesc("Where the image is placed in the cross layout.").addDropdown((d) => {
+      const cur = cfg.align ?? "left";
+      d.addOption("left", "Left (image left)");
+      d.addOption("right", "Right (image right)");
+      d.setValue(cur);
+      d.onChange((v) => {
+        if (v === "right") {
+          cfg.align = "right";
+        } else {
+          delete cfg.align;
+        }
+      });
+    });
     addNum("Max. summary lines", "maxSummaryLines", "e.g. 7");
     addNum("Image width", "cardWidth", "e.g. 200");
     addNum("Image height", "cardHeight", "e.g. 315");
@@ -1055,7 +1133,7 @@ var TimelineConfigModal = class extends import_obsidian.Modal {
       });
     });
     let monthsText = Array.isArray(cfg.months) && cfg.months.length > 0 ? cfg.months.join(", ") : cfg.months ?? "";
-    new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Comma-separated (,) or YAML list (empty = English months)").addTextArea((ta) => {
+    new import_obsidian.Setting(contentEl).setName("Month names").setDesc("Set own month names. Separate them with comma.").addTextArea((ta) => {
       ta.inputEl.rows = 3;
       ta.setValue(monthsText);
       ta.onChange((v) => {
@@ -1221,13 +1299,13 @@ var SimpleTimelineSettingsTab = class extends import_obsidian.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     new import_obsidian.Setting(containerEl).setName("Bases integration (optional)").setDesc(
-      "Registers a custom Bases view type \u201CTimeline (Cross)\u201D. Requires Obsidian with Bases support. Toggle needs a plugin reload to take effect."
+      "Registers a custom bases view type timeline cross. Requires Obsidian with bases support. Toggle needs a plugin reload to take effect."
     ).addToggle(
       (t) => t.setValue(this.plugin.settings.enableBasesIntegration).onChange(async (v) => {
         this.plugin.settings.enableBasesIntegration = v;
         await this.plugin.saveSettings();
         new import_obsidian.Notice(
-          "Saved. Please reload the plugin (or restart Obsidian) for Bases view registration changes to apply."
+          "Saved. Please reload the plugin (or restart Obsidian) for bases view registration changes to apply."
         );
       })
     );
