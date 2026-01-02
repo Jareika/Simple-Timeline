@@ -122,6 +122,7 @@ views:
     summaryProperty: note.tl-summary
     imageProperty: note.tl-image
     orderMode: start-asc
+	mode: stacked | mixed
 ```
 ~~~
 
