@@ -1,66 +1,128 @@
-# TTRPG Tools: Timeline
+# Simple Timeline (Obsidian Plugin)
 
-Simple Timeline is an Obsidian plugin that renders visual timelines from note frontmatter.
+Simple Timeline renders timelines from note frontmatter. It can be used in:
 
-It reads `fc-date` / `fc-end` fields (compatible with [Calendarium]-style frontmatter) and shows each note as a card: image on the left, a callout‑like box on the right, with native Obsidian popovers on hover.
+- Markdown code blocks (`timeline-cal`, `timeline-h`)
+- Bases views (optional integration)
 
-## Features
+It is designed to be theme-friendly and configurable.
 
-- Uses `fc-date` / `fc-end` from note frontmatter.
-- “Cross” layout:
-  - Left: fixed image with rounded corners.
-  - Right: fixed‑height card using your theme’s H1/H4 styles.
-- Native Obsidian page preview:
-  - Hover over image or card to open the note preview.
-  - Works without holding Ctrl.
-- Responsive layout:
-  - Wide screens: image left, card right.
-  - Narrow screens: image stacked on top of the card, behaving like a single combined “card”.
-- Summary handling:
-  - Optional `tl-summary` frontmatter (multi‑line YAML `|` / `|-` supported).
-  - If missing, the plugin uses the first meaningful paragraph from the note body.
-  - Summary is clamped to a configurable number of lines with a native multi‑line ellipsis.
-- Colors and sizing:
-  - Global defaults for image size, card height, paddings and colors.
-  - Per‑timeline overrides (including title/date color and hover background).
-- Month names:
-  - English by default (`January`…`December`).
-  - Custom month names per timeline (useful for fantasy calendars).
-- No runtime dependency on Calendarium:
-  - Just reuses its `fc-date` / `fc-end` convention.
-
-## Installation
-
-Until it is available in the community plugin browser, you can install it manually:
-
-1. Build the plugin (or download a release ZIP, if available).
-2. Copy the contents (`main.js`, `manifest.json`, `styles.css` and `versions.json`) into a folder named `simple-timeline` inside your vault’s `.obsidian/plugins` directory.
-3. Enable **Simple Timeline** in *Settings → Community plugins*.
-4. Custom month names: In your timeline settings you can write down your own fantasy or whatever month names, just separate them with commas (,).
-
-Minimum Obsidian version: `1.6.7`.
-
-## Usage
-
-### 1. Frontmatter in your notes
-
-Add at least `fc-date` to any note you want to see on a timeline:
-
-```yaml
 ---
-fc-date: 1165-04-01       # required
-fc-end: 1165-04-03        # optional (end of range)
-timelines: [Travel]       # one or more timeline names
-tl-title: Arrival in Hollowhome 2   # optional display title
-tl-summary: |-            # optional custom summary
-  Late in the afternoon we reached the old cemetery...
-  The fence was swallowed by vines...
-tl-image: assets/hollowhome.jpg    # optional image override
----
-```
-### 2. YAML Codeblock to display the timeline
 
-```yaml
+##  Install / Enable
+
+1. Install the plugin (manual or via BRAT / community store if available).
+2. Enable it in **Settings → Community plugins**.
+3. Enable **Page Preview** (recommended) to use hover popovers.
+
+---
+
+## Required Frontmatter
+
+A note becomes a timeline entry when it has `fc-date`.
+
+### Minimal
+fc-date: 1165-03-01
+fc-end: 1165-03-03
+timelines: [Travelbook 1]
+tl-title: Arrival in New York
+tl-summary: |-
+  We arrived after two days of travel.
+  Weather: rain and wind.
+tl-image: assets/my-image.png
+
+Image can be:
+- an external URL (https://...)
+- an internal link/path to a vault file
+
+Image selection priority
+The plugin tries to find an image in this order:
+- tl-image (frontmatter)
+- first internal embed image (![[...]])
+- first markdown image link (![](…))
+- first image file in the note folder
+
+## Markdown Code Blocks
+
+A) Vertical “Cross” layout (default renderer)
+~~~
 ```timeline-cal
-name/names: YourTimeline, YourSecondTimelineIfYouLikeToShowTwo...orMore
+names: Travelbook 1, Travelbook 2
+jumpToToday: true
 ```
+~~~
+
+Shows one entry per row (image + callout box).
+
+B) Horizontal timeline
+~~~
+```timeline-h
+names: Reisebuch 1, Reisebuch 2
+mode: stacked      # stacked | mixed
+jumpToToday: false
+```
+~~~
+
+Modes:
+- mixed: all entries from all timelines in one horizontal row (chronological)
+- stacked: one horizontal row per timeline; aligned by the union of existing dates (gaps appear only when a timeline has no entry for a date that another timeline has)
+
+## Settings (Global + Per Timeline)
+You can configure:
+- image width / height
+- box height
+- inner left/right padding
+- max summary lines (multi-line ellipsis)
+- colors (background, border, hover, title, date)
+- per-timeline month names (manual) (name, name,...)
+Per-timeline configuration is stored under a timeline key (the same name you use in timelines:).
+
+## Calendarium “Today” (optional)
+If the Calendarium plugin is installed, the Timeline UI can jump to “today”:
+
+In Markdown blocks: jumpToToday: true
+In Bases views: option jumpToToday: "true"
+If Calendarium is not installed, the button will show a notice.
+
+## Bases Integration (optional)
+Enable it in plugin settings:
+
+Settings → Simple Timeline → Bases integration
+After enabling, restart Obsidian or reload the plugin (required for view registration).
+
+A) Bases view: Timeline (Cross)
+View type:
+simple-timeline-cross
+B) Bases view: Timeline (Horizontal)
+View type:
+simple-timeline-horizontal
+
+Common options (property mapping):
+- timelineConfig (optional, forces one style config for all cards)
+- timelineProperty (used when timelineConfig is empty)
+- startProperty, endProperty
+- titleProperty, summaryProperty, imageProperty
+- orderMode: bases | start-asc | start-desc
+- jumpToToday: "true" | "false"
+
+Horizontal-only option:
+- mode: stacked | mixed
+
+
+Example YAML for Bases:
+~~~
+```base
+views:
+  - type: simple-timeline-horizontal # simple-timeline-cross
+    name: Timeline (mixed)
+    timelineConfig: ""
+    startProperty: note.fc-date
+    endProperty: note.fc-end
+    titleProperty: note.tl-title
+    summaryProperty: note.tl-summary
+    imageProperty: note.tl-image
+    orderMode: start-asc
+```
+~~~
+
+

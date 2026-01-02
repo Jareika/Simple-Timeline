@@ -94,15 +94,15 @@
 .tl-box .tl-title.tl-title-colored,
 .tl-box .tl-date.tl-date-colored {
   position: relative;
-  display: inline-block;                /* isoliert den Unterstrich auf Textbreite */
-  border: 0 !important;                 /* Theme-Borders aus */
+  display: inline-block;
+  border: 0 !important;
   border-bottom: 0 !important;
-  box-shadow: none !important;          /* Theme-Schatten aus */
-  background: none !important;          /* Theme-Hintergründe aus */
+  box-shadow: none !important;
+  background: none !important;
   background-image: none !important;
 }
 
-/* H1 line: slightly thicker, full width, close to the text */
+/* H1 line */
 .tl-box .tl-title.tl-title-colored::after {
   content: "";
   pointer-events: none;
@@ -120,7 +120,7 @@
   opacity: 0.95;
 }
 
-/* H4 / date line: shorter and visually distinct*/
+/* H4 / date line */
 .tl-box .tl-date.tl-date-colored::after {
   content: "";
   pointer-events: none;
@@ -138,7 +138,7 @@
   opacity: 0.95;
 }
 
-/* Summary: native multi‑line ellipsis; line count is set from JS */
+/* Summary */
 .tl-box .tl-summary {
   position: relative;
   flex: 1 1 auto;
@@ -152,13 +152,12 @@
   word-break: break-word;
 }
 
-/* Extra safety against overflow (no visual gradient, just clipping) */
 .tl-box .tl-summary.tl-clamp {
   max-height: calc(var(--tl-summary-lines, 7) * var(--tl-summary-lh, 1.4) * 1em);
   overflow: hidden;
 }
 
-/* Hover: background changes, border keeps the accent color */
+/* Hover */
 .tl-media:hover + .tl-box.callout.has-media,
 .tl-box.callout:hover {
   background: var(
@@ -181,52 +180,144 @@
 }
 
 /* =========================================
+   Horizontal timeline (timeline-h)
+   ========================================= */
+
+.tl-h-scroller {
+  --tl-h-col-w: 600px;
+  --tl-h-gap: 0px;         /* cards touch */
+  --tl-h-stack-gap: 26px;
+
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+.tl-h-content.tl-horizontal.tl-h-mixed {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--tl-h-gap, 0px);
+}
+
+.tl-h-content.tl-horizontal.tl-h-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-h-stack-gap, 26px);
+}
+
+.tl-h-item {
+  flex: 0 0 auto;
+  width: var(--tl-h-col-w, 600px);
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.tl-horizontal .tl-row {
+  width: auto !important;
+}
+
+/* Ensure fixed card width */
+.tl-h-item .tl-grid.no-media {
+  grid-template-columns: var(--tl-h-col-w, 600px);
+}
+
+.tl-h-item .tl-grid.has-media {
+  grid-template-columns:
+    var(--tl-media-w, 200px)
+    max(160px, calc(var(--tl-h-col-w, 600px) - var(--tl-media-w, 200px)));
+}
+
+.tl-h-item.tl-align-right .tl-grid.has-media {
+  grid-template-columns:
+    max(160px, calc(var(--tl-h-col-w, 600px) - var(--tl-media-w, 200px)))
+    var(--tl-media-w, 200px);
+}
+
+/* Join styling (ONLY when JS adds join-classes) */
+.tl-h-item.tl-h-join-left-box .tl-box.callout {
+  border-left: none;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.tl-h-item.tl-h-join-right-box .tl-box.callout {
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* stacked grid per timeline row */
+.tl-h-timeline {
+  display: block;
+}
+
+.tl-h-row {
+  display: grid;
+  grid-template-columns: repeat(var(--tl-h-cols, 1), var(--tl-h-col-w, 600px));
+  column-gap: var(--tl-h-gap, 0px);
+  row-gap: 12px;
+  align-items: start;
+}
+
+.tl-h-slot {
+  grid-column-start: var(--tl-h-col);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* =========================================
    Responsive behaviour (tablet / mobile)
    ========================================= */
 
 @media (max-width: 900px) {
+  .tl-horizontal {
+    --tl-h-col-w: 420px;
+    --tl-h-gap: 0px;
+  }
+
   .tl-wrapper.tl-cross-mode {
     gap: 16px;
   }
 
-  .tl-row {
+  .tl-wrapper.tl-cross-mode .tl-row {
     padding-left: 16px !important;
     padding-right: 16px !important;
     display: flex;
     justify-content: center;
   }
 
-  .tl-grid {
-    grid-template-columns: 1fr !important; /* image above card */
+  .tl-wrapper.tl-cross-mode .tl-grid {
+    grid-template-columns: 1fr !important;
     justify-items: stretch;
     width: 100%;
     max-width: 560px;
     row-gap: 0;
   }
 
-  /* IMPORTANT: override desktop grid-areas for single-column layout */
-  .tl-grid.has-media {
+  .tl-wrapper.tl-cross-mode .tl-grid.has-media {
     grid-template-areas:
       "media"
       "box" !important;
   }
 
-  .tl-grid.no-media {
+  .tl-wrapper.tl-cross-mode .tl-grid.no-media {
     grid-template-areas: "box" !important;
   }
 
-  /* Image on top: visually part of the same “card”. */
-  .tl-media {
+  .tl-wrapper.tl-cross-mode .tl-media {
     width: 100% !important;
     max-width: 560px;
     height: auto !important;
     border-radius: 10px 10px 0 0;
     border: none;
-    margin-bottom: -6px;   /* lets the image slightly overlap the box */
+    margin-bottom: -6px;
     background: transparent;
   }
 
-  .tl-media img {
+  .tl-wrapper.tl-cross-mode .tl-media img {
     width: 100%;
     height: auto !important;
     object-fit: cover;
@@ -234,31 +325,27 @@
     border-radius: 10px 10px 0 0;
   }
 
-  /* Box below the image: together they form a single card */
-  .tl-box.callout {
+  .tl-wrapper.tl-cross-mode .tl-box.callout {
     width: 100%;
     max-width: 560px;
   }
 
-  /* Mobile: stacked -> box always below image. Alignment doesn't matter here. */
-  .tl-box.callout.has-media {
+  .tl-wrapper.tl-cross-mode .tl-box.callout.has-media {
     height: auto !important;
     border-radius: 0 0 10px 10px;
     border: 1px solid var(--tl-accent, var(--background-modifier-border));
-    border-top: none; /* no double border directly under the image */
+    border-top: none;
     margin-top: 0;
   }
 
-  /* Override desktop cut-edges for both alignments */
-  .tl-row.tl-align-right .tl-box.callout.has-media,
-  .tl-row:not(.tl-align-right) .tl-box.callout.has-media {
+  .tl-wrapper.tl-cross-mode .tl-row.tl-align-right .tl-box.callout.has-media,
+  .tl-wrapper.tl-cross-mode .tl-row:not(.tl-align-right) .tl-box.callout.has-media {
     border: 1px solid var(--tl-accent, var(--background-modifier-border));
     border-top: none;
     border-radius: 0 0 10px 10px;
   }
 
-  /* Without image: card stands on its own, full width, auto height */
-  .tl-box.callout.no-media {
+  .tl-wrapper.tl-cross-mode .tl-box.callout.no-media {
     width: 100%;
     max-width: 560px;
     height: auto !important;
