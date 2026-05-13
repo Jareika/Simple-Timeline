@@ -254,6 +254,17 @@ function parseHorizontalMode(v: unknown): HorizontalMode | undefined {
 const BASES_VIEW_TYPE_CROSS = "simple-timeline-cross";
 const BASES_VIEW_TYPE_HORIZONTAL = "simple-timeline-horizontal";
 
+type GridEvent = {
+  card: CardData;
+  startIdx: number;
+  endIdx: number;
+  isMulti: boolean;
+  row: number;
+  overflowCol: number; // 0 = base column of the day, 1..n = overflow columns for that day
+  colStart: number; // 0-based column index in the expanded column list
+  colEnd: number; // exclusive, 0-based column index in the expanded column list
+};
+
 /** Minimal shape of Bases view options used by registerBasesView(). */
 interface BasesViewOption {
   type: string;
@@ -393,7 +404,7 @@ export default class SimpleTimeline extends Plugin {
 
     return null;
   }
-
+  
   public jumpContainerToYmd(
     containerEl: HTMLElement,
     ymd: Ymd,
@@ -1536,7 +1547,7 @@ export default class SimpleTimeline extends Plugin {
     const v = opts["jumpToToday"];
     return v === true;
   }
-
+  
   private getHorizontalEdges(c: CardData, cfg: ResolvedTimelineRenderConfig): { left: HorizontalEdge; right: HorizontalEdge } {
     const hasMedia = !!c.imgSrc;
     const align: TimelineAlign = cfg.align ?? "left";
@@ -1908,7 +1919,7 @@ export default class SimpleTimeline extends Plugin {
       if (today) this.jumpContainerToYmd(scroller, today, ".tl-h-item");
     }
   }
-
+  
   // Line clamp helper
   public applyFixedLineClamp(summaryEl: HTMLElement, lines: number) {
     const n = Math.max(1, Math.floor(lines || this.settings.maxSummaryLines));

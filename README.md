@@ -7,7 +7,9 @@ Simple Timeline renders timelines from note frontmatter. It can be used in:
 
 It is designed to be theme-friendly and configurable.
 
-## Examples
+## Example page with tutorial videos and more
+
+https://ttrpg-tools-obsidian.org/
 
 ### Vertical View
 ![Timeline Vertical Example](https://raw.githubusercontent.com/Jareika/Simple-Timeline/main/assets/Timeline_Vertical_Example.png)
