@@ -1,6 +1,6 @@
 {
   "name": "obsidian-simple-timeline",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -13,6 +13,7 @@
   "devDependencies": {
     "@types/node": "^22.7.5",
     "esbuild": "^0.24.0",
+    "obsidian": "^1.6.7",
     "typescript": "^5.6.3"
   }
 }
