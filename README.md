@@ -1,6 +1,6 @@
-# Simple Timeline (Obsidian Plugin)
+# TTRPG Tools: Timeline (Obsidian Plugin)
 
-Simple Timeline renders timelines from note frontmatter. It can be used in:
+TTRPG Tools: Time renders timelines from note frontmatter. It can be used in:
 
 - Markdown code blocks (`timeline-cal`, `timeline-h`)
 - Bases views (optional integration)
