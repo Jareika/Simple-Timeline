@@ -1,4 +1,4 @@
-# TTRPG Tools: Timeline (Obsidian Plugin)
+# TTRPG Tools - Timeline (Obsidian Plugin)
 
 TTRPG Tools: Time renders timelines from note frontmatter. It can be used in:
 
